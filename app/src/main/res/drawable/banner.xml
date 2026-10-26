@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- the TV launcher's 16:9 card: the gold tile with its «ت», in the middle of a deep band -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="320dp" android:height="180dp" android:viewportWidth="320" android:viewportHeight="180">
+    <path android:pathData="M0,0h320v180h-320z" android:fillColor="#FF0C0D0F" />
+    <path android:pathData="M126,36h68a14,14 0,0 1,14 14v80a14,14 0,0 1,-14 14h-68a14,14 0,0 1,-14 -14v-80a14,14 0,0 1,14 -14z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="112" android:startY="36" android:endX="208" android:endY="144"
+                android:startColor="#FFF3D9A4" android:centerColor="#FFD6AF6B" android:endColor="#FF9C7438" />
+        </aapt:attr>
+    </path>
+    <path android:pathData="M132,86c0,24 13,36 28,36s28,-12 28,-36" android:strokeColor="#FF14110C" android:strokeWidth="9"
+        android:strokeLineCap="round" android:fillColor="#00000000" />
+    <path android:pathData="M152,62l6,6l-6,6l-6,-6z" android:fillColor="#FF14110C" />
+    <path android:pathData="M168,62l6,6l-6,6l-6,-6z" android:fillColor="#FF14110C" />
+</vector>
