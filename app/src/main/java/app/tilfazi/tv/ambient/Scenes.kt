@@ -85,8 +85,8 @@ fun Scene(index: Int, board: Board, picks: Picks) {
         7 -> PatternScene(board, picks)
         8 -> DunesScene(board, picks)
         9 -> AuroraScene(board, picks)
-        else -> Scenery(board, picks.looks, picks.place) {
-            Stage(board, picks, Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 48.dp), scale = 1.25f, panelWidth = 400.dp)
+        else -> Scenery(board, picks.looks, picks.place, picks = picks) {
+            Stage(board, picks, Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 48.dp), scale = 1.2f, panelWidth = 400.dp, showClock = true)
         }
     }
 }
@@ -103,7 +103,7 @@ private fun time(now: Long, picks: Picks): String {
 
 /** «الظهر بعد ٤:٢٠:١٠» */
 private fun nextLine(now: Long, picks: Picks): String {
-    val next = Salah.next(now, picks.place) ?: return ""
+    val next = Salah.next(now, picks) ?: return ""
     return "${next.name} بعد ${countdown(next.at - now, picks.latinDigits)}"
 }
 
@@ -111,7 +111,7 @@ private fun nextLine(now: Long, picks: Picks): String {
 
 /** the time alone in the middle, very large, the dates and the next prayer quietly under it */
 @Composable
-private fun BigClock(board: Board, picks: Picks) = Scenery(board, picks.looks, picks.place) {
+private fun BigClock(board: Board, picks: Picks) = Scenery(board, picks.looks, picks.place, picks = picks) {
     val zone = picks.place.zone
     val (h, _) = hm(board.now, zone)
     Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -260,17 +260,17 @@ private fun NightSky(board: Board, picks: Picks) {
  * marked on it, and the sun (or the moon at night, along the night's own arc) where it is now; the time over it.
  */
 @Composable
-private fun SunPath(board: Board, picks: Picks) = Scenery(board, picks.looks, picks.place) {
+private fun SunPath(board: Board, picks: Picks) = Scenery(board, picks.looks, picks.place, picks = picks) {
     val place = picks.place
     val now = board.now
-    val (rise, set) = Salah.sun(now, place)
+    val (rise, set) = Salah.sun(now, picks)
     val day = now in rise..set
-    val prayers = Salah.day(now, place)
+    val prayers = Salah.day(now, picks)
     // at night the arc runs from this sunset to the next sunrise
     val (from, to) = when {
         day -> rise to set
-        now > set -> set to Salah.sun(now + 86_400_000L, place).first
-        else -> Salah.sun(now - 86_400_000L, place).second to rise
+        now > set -> set to Salah.sun(now + 86_400_000L, picks).first
+        else -> Salah.sun(now - 86_400_000L, picks).second to rise
     }
     val at = ((now - from).toFloat() / (to - from)).coerceIn(0f, 1f)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl

@@ -18,33 +18,92 @@ import kotlin.math.tan
 /** One of the five prayers on a given day. */
 data class Salat(val name: String, val at: Long)
 
+/** Calculation parameters for a recognized Islamic prayer authority */
+data class CalcMethod(
+    val name: String,
+    val fajrAngle: Double,
+    val ishaAngle: Double? = null,
+    val ishaIntervalMinutes: Double? = null,
+    val ishaIntervalRamadanMinutes: Double? = null,
+)
+
 /**
- * The five prayer times worked out on the device, Umm al-Qura style: Fajr with the sun 18.5° below the horizon,
- * Asr when a shadow is its length plus the noon shadow, Maghrib at sunset, Isha 90 minutes after it (120 in Ramadan).
- * The sun's place comes from the low-precision formulas of the Astronomical Almanac: good to about a minute.
+ * The five prayer times worked out on the device with configurable calculation method, madhhab for Asr,
+ * and manual minute offsets.
  */
 object Salah {
-    private const val FAJR_DEPTH = 18.5
     private const val HORIZON = 0.833   // refraction and the sun's radius
 
+    val METHODS = listOf(
+        CalcMethod("أم القرى (مكة المكرمة)", fajrAngle = 18.5, ishaIntervalMinutes = 90.0, ishaIntervalRamadanMinutes = 120.0),
+        CalcMethod("رابطة العالم الإسلامي", fajrAngle = 18.0, ishaAngle = 17.0),
+        CalcMethod("الهيئة المصرية العامة للمساحة", fajrAngle = 19.5, ishaAngle = 17.5),
+        CalcMethod("جامعة العلوم الإسلامية بكراتشي", fajrAngle = 18.0, ishaAngle = 18.0),
+        CalcMethod("الاتحاد الإسلامي لأمريكا الشمالية (ISNA)", fajrAngle = 15.0, ishaAngle = 15.0),
+        CalcMethod("رئاسة الشؤون الدينية التركية (ديانت)", fajrAngle = 18.0, ishaAngle = 17.0),
+        CalcMethod("وزارة الأوقاف الكويتية", fajrAngle = 18.0, ishaAngle = 17.5),
+        CalcMethod("الهيئة العامة للشؤون الإسلامية (الإمارات)", fajrAngle = 18.2, ishaAngle = 18.2),
+        CalcMethod("وزارة الأوقاف والشؤون الإسلامية (قطر)", fajrAngle = 18.0, ishaIntervalMinutes = 90.0),
+        CalcMethod("اتحاد المنظمات الإسلامية بفرنسا (UOIF)", fajrAngle = 12.0, ishaAngle = 12.0),
+        CalcMethod("مجلس الشؤون الإسلامية بسنغافورة (MUIS)", fajrAngle = 20.0, ishaAngle = 18.0),
+        CalcMethod("معهد الجيوفيزياء بجامعة طهران", fajrAngle = 17.7, ishaAngle = 14.0),
+    )
+
+    val MADHHABS = listOf(
+        "الجمهور (شافعي، حنبلي، مالكي)",
+        "الحنفي",
+    )
+
     /** the prayers of the local day that holds [millis] */
-    fun day(millis: Long, place: Place): List<Salat> {
+    fun day(
+        millis: Long,
+        place: Place,
+        method: Int = 0,
+        madhhab: Int = 0,
+        adjust: List<Int> = emptyList(),
+    ): List<Salat> {
         val zone = TimeZone.getTimeZone(place.zone)
         val cal = Calendar.getInstance(zone).apply { timeInMillis = millis }
-        return dayOf(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH), place, inRamadan(millis, zone))
+        return dayOf(
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH) + 1,
+            cal.get(Calendar.DAY_OF_MONTH),
+            place,
+            inRamadan(millis, zone),
+            method,
+            madhhab,
+            adjust,
+        )
     }
 
+    fun day(millis: Long, picks: Picks): List<Salat> =
+        day(millis, picks.place, picks.prayerMethod, picks.prayerMadhhab, picks.prayerAdjust)
+
     /** the sunrise and the sunset of the local day that holds [millis] */
-    fun sun(millis: Long, place: Place): Pair<Long, Long> {
+    fun sun(millis: Long, place: Place, adjust: List<Int> = emptyList()): Pair<Long, Long> {
         val zone = TimeZone.getTimeZone(place.zone)
         val cal = Calendar.getInstance(zone).apply { timeInMillis = millis }
         val (rise, set) = horizon(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH), place)
-        return rise to set
+        val riseAdj = rise + adjust.getOrElse(1) { 0 } * 60_000L
+        val setAdj = set + adjust.getOrElse(4) { 0 } * 60_000L
+        return riseAdj to setAdj
     }
 
+    fun sun(millis: Long, picks: Picks): Pair<Long, Long> =
+        sun(millis, picks.place, picks.prayerAdjust)
+
     /** the first prayer still to come, looking into tomorrow after Isha */
-    fun next(now: Long, place: Place): Salat? =
-        (day(now, place) + day(now + 86_400_000L, place)).firstOrNull { it.at > now }
+    fun next(
+        now: Long,
+        place: Place,
+        method: Int = 0,
+        madhhab: Int = 0,
+        adjust: List<Int> = emptyList(),
+    ): Salat? =
+        (day(now, place, method, madhhab, adjust) + day(now + 86_400_000L, place, method, madhhab, adjust)).firstOrNull { it.at > now }
+
+    fun next(now: Long, picks: Picks): Salat? =
+        next(now, picks.place, picks.prayerMethod, picks.prayerMadhhab, picks.prayerAdjust)
 
     /** the day's noon (UTC hours), and the hours from noon until the sun stands at an altitude */
     private class Day(y: Int, m: Int, d: Int, place: Place) {
@@ -67,24 +126,51 @@ object Salah {
         return day.at(day.noon - day.span(-HORIZON)) to day.at(day.noon + day.span(-HORIZON))
     }
 
-    fun dayOf(y: Int, m: Int, d: Int, place: Place, ramadan: Boolean): List<Salat> {
+    fun dayOf(
+        y: Int,
+        m: Int,
+        d: Int,
+        place: Place,
+        ramadan: Boolean,
+        method: Int = 0,
+        madhhab: Int = 0,
+        adjust: List<Int> = emptyList(),
+    ): List<Salat> {
         val day = Day(y, m, d, place)
         val noon = day.noon
         val lat = day.lat
         val decl = day.decl
         fun span(altitude: Double) = day.span(altitude)
 
-        val asrAltitude = Math.toDegrees(atan(1.0 / (1.0 + tan(abs(lat - decl)))))
-        val fajr = noon - span(-FAJR_DEPTH)
-        val dhuhr = noon
+        val calc = METHODS.getOrElse(method.coerceIn(0, METHODS.lastIndex)) { METHODS[0] }
+        val shadowFactor = if (madhhab == 1) 2.0 else 1.0
+        val asrAltitude = Math.toDegrees(atan(1.0 / (shadowFactor + tan(abs(lat - decl)))))
+
+        val fajr = noon - span(-calc.fajrAngle)
+        val dhuhr = noon + (1.0 / 60.0)
         val asr = noon + span(asrAltitude)
         val maghrib = noon + span(-HORIZON)
-        val isha = maghrib + (if (ramadan) 120.0 else 90.0) / 60.0
+        val isha = if (calc.ishaIntervalMinutes != null) {
+            val interval = if (ramadan && calc.ishaIntervalRamadanMinutes != null) calc.ishaIntervalRamadanMinutes else calc.ishaIntervalMinutes
+            maghrib + interval / 60.0
+        } else {
+            noon + span(-(calc.ishaAngle ?: 17.0))
+        }
 
         fun at(hours: Double) = day.at(hours)
+
+        val fajrAdj = adjust.getOrElse(0) { 0 } * 60_000L
+        val dhuhrAdj = adjust.getOrElse(2) { 0 } * 60_000L
+        val asrAdj = adjust.getOrElse(3) { 0 } * 60_000L
+        val maghribAdj = adjust.getOrElse(4) { 0 } * 60_000L
+        val ishaAdj = adjust.getOrElse(5) { 0 } * 60_000L
+
         return listOf(
-            Salat("الفجر", at(fajr)), Salat("الظهر", at(dhuhr)), Salat("العصر", at(asr)),
-            Salat("المغرب", at(maghrib)), Salat("العشاء", at(isha)),
+            Salat("الفجر", at(fajr) + fajrAdj),
+            Salat("الظهر", at(dhuhr) + dhuhrAdj),
+            Salat("العصر", at(asr) + asrAdj),
+            Salat("المغرب", at(maghrib) + maghribAdj),
+            Salat("العشاء", at(isha) + ishaAdj),
         )
     }
 

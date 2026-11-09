@@ -21,10 +21,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,20 +57,19 @@ val SKY_STYLES = listOf("أيقونة", "كبير", "الساعات القادم
 
 @Composable
 private fun Block(scale: Float, content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 10.dp * scale)) { content() }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp * scale)) { content() }
 }
 
 // ================================================================ the prayer
 
 /** where the day stands: its five prayers (tomorrow's after Isha), the next one, and how far along the way to it */
-private class DayState(val line: List<Salat>, val next: Int, val progress: Float)
+internal class DayState(val line: List<Salat>, val next: Int, val progress: Float)
 
-private fun dayState(now: Long, picks: Picks): DayState {
-    val place = picks.place
-    val today = Salah.day(now, place)
-    val line = if (today.any { it.at > now }) today else Salah.day(now + 86_400_000L, place)
+internal fun dayState(now: Long, picks: Picks): DayState {
+    val today = Salah.day(now, picks)
+    val line = if (today.any { it.at > now }) today else Salah.day(now + 86_400_000L, picks)
     val k = line.indexOfFirst { it.at > now }.coerceAtLeast(0)
-    val from = if (k == 0) Salah.day(line[0].at - 86_400_000L, place).last().at else line[k - 1].at
+    val from = if (k == 0) Salah.day(line[0].at - 86_400_000L, picks).last().at else line[k - 1].at
     val progress = ((now - from).toFloat() / (line[k].at - from).coerceAtLeast(1)).coerceIn(0f, 1f)
     return DayState(line, k, progress)
 }
@@ -85,49 +84,55 @@ fun PrayerWidget(style: Int, now: Long, picks: Picks, scale: Float) {
     }
 }
 
-/** the next prayer and its countdown over a gold line through the day's five dots */
+/** the next prayer and its countdown over a gold progress line + the five times below */
 @Composable
 private fun PrayerLine(d: DayState, now: Long, picks: Picks, scale: Float) = Block(scale) {
     val next = d.line[d.next]
-    Row(verticalAlignment = Alignment.Bottom) {
-        Text(next.name, style = Look.style((24 * scale).sp, big = true), modifier = Modifier.weight(1f))
-        Text(countdown(next.at - now, picks.latinDigits), style = Look.style((30 * scale).sp, big = true))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        Text(next.name, style = Look.style((24 * scale).sp, Look.Ink, big = true), modifier = Modifier.weight(1f))
+        Text(countdown(next.at - now, picks.latinDigits), style = Look.style((28 * scale).sp, Look.Gold, big = true))
     }
-    Spacer(Modifier.height(10.dp * scale))
+    Spacer(Modifier.height(8.dp * scale))
     DayLine(d.next, d.progress, scale)
     Spacer(Modifier.height(6.dp * scale))
     Row(Modifier.fillMaxWidth()) {
         d.line.forEachIndexed { i, s ->
+            val on = i == d.next
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(s.name, style = Look.style((12 * scale).sp, if (i == d.next) Look.Gold else if (i < d.next) Look.Soft else Look.Faint,
-                    if (i == d.next) FontWeight.Medium else FontWeight.Normal))
-                if (i == d.next) Text(clock12(s.at, picks.place.zone, picks.latinDigits), style = Look.style((11 * scale).sp, Look.Soft))
+                Text(
+                    s.name,
+                    style = Look.style((12 * scale).sp, if (on) Look.Gold else if (i < d.next) Look.Faint else Look.Soft, if (on) FontWeight.Medium else FontWeight.Normal),
+                )
+                Text(
+                    clock12(s.at, picks.place.zone, picks.latinDigits).substringBefore(' '),
+                    style = Look.style((13 * scale).sp, if (on) Look.Ink else Look.Faint, big = true),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun DayLine(next: Int, progress: Float, scale: Float) {
+internal fun DayLine(next: Int, progress: Float, scale: Float) {
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val pulse = if (Look.still) 1f else rememberInfiniteTransition(label = "pulse")
         .animateFloat(.55f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Reverse), label = "pulse").value
-    Canvas(Modifier.fillMaxWidth().height(14.dp * scale)) {
+    Canvas(Modifier.fillMaxWidth().height(12.dp * scale)) {
         val y = size.height / 2
-        fun x(slot: Float): Float {   // slot 0 is Fajr's dot; -.5 and 4.5 are the line's ends
+        fun x(slot: Float): Float {
             val pos = (slot + .5f) / 5f * size.width
             return if (rtl) size.width - pos else pos
         }
-        val dot = 4.dp.toPx() * scale
+        val dot = 3.5.dp.toPx() * scale
         drawLine(Color.White.copy(alpha = .18f), Offset(x(-.5f), y), Offset(x(4.5f), y), 1.5.dp.toPx(), StrokeCap.Round)
         val here = x((next - 1 + progress).coerceAtLeast(-.5f))
-        drawLine(Look.Gold.copy(alpha = .8f), Offset(x(-.5f), y), Offset(here, y), 1.5.dp.toPx(), StrokeCap.Round)
+        drawLine(Look.Gold.copy(alpha = .85f), Offset(x(-.5f), y), Offset(here, y), 2.dp.toPx(), StrokeCap.Round)
         for (i in 0 until 5) {
             val c = Offset(x(i.toFloat()), y)
             when {
                 i < next -> drawCircle(Look.Gold, dot, c)
                 i == next -> {
-                    drawCircle(Look.Gold.copy(alpha = .25f * pulse), dot * 2.6f, c)
+                    drawCircle(Look.Gold.copy(alpha = .28f * pulse), dot * 2.5f, c)
                     drawCircle(Look.Gold, dot * 1.15f, c, style = Stroke(1.5.dp.toPx()))
                 }
                 else -> drawCircle(Color.White.copy(alpha = .35f), dot * .8f, c)
@@ -137,84 +142,101 @@ private fun DayLine(next: Int, progress: Float, scale: Float) {
     }
 }
 
-/** a gold ring that fills on the way to the next prayer, the countdown inside; the prayer and the one after it beside */
+/** a gold ring that fills on the way to the next prayer, the countdown inside; the prayer and the five times beside it */
 @Composable
 private fun PrayerRing(d: DayState, now: Long, picks: Picks, scale: Float) = Block(scale) {
     val next = d.line[d.next]
     val after = d.line.getOrNull(d.next + 1)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(118.dp * scale), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.size(118.dp * scale)) {
-                val w = 5.dp.toPx() * scale
+        Box(Modifier.size(104.dp * scale), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.size(104.dp * scale)) {
+                val w = 4.5.dp.toPx() * scale
                 val inset = w / 2
                 val box = Size(size.width - w, size.height - w)
                 drawArc(Color.White.copy(alpha = .12f), 0f, 360f, false, Offset(inset, inset), box, style = Stroke(w))
                 drawArc(
-                    Brush.sweepGradient(listOf(Look.Gold.copy(alpha = .5f), Look.Gold)), -90f, 360f * d.progress, false,
+                    Brush.sweepGradient(listOf(Look.Gold.copy(alpha = .45f), Look.Gold)), -90f, 360f * d.progress, false,
                     Offset(inset, inset), box, style = Stroke(w, cap = StrokeCap.Round),
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(countdown(next.at - now, picks.latinDigits), style = Look.style((19 * scale).sp, big = true))
+                Text(countdown(next.at - now, picks.latinDigits), style = Look.style((17 * scale).sp, big = true))
                 Text("متبقي", style = Look.style((10 * scale).sp, Look.Soft))
             }
         }
-        Spacer(Modifier.width(22.dp * scale))
+        Spacer(Modifier.width(20.dp * scale))
         Column {
             Text("الصلاة القادمة", style = Look.style((12 * scale).sp, Look.Gold, FontWeight.Medium))
-            Text(next.name, style = Look.style((32 * scale).sp, big = true))
+            Text(next.name, style = Look.style((28 * scale).sp, Look.Ink, big = true))
             Text("الأذان " + clock12(next.at, picks.place.zone, picks.latinDigits), style = Look.style((14 * scale).sp, Look.Ink))
             if (after != null) {
-                Spacer(Modifier.height(6.dp * scale))
+                Spacer(Modifier.height(4.dp * scale))
                 Text("بعدها ${after.name} " + clock12(after.at, picks.place.zone, picks.latinDigits), style = Look.style((12 * scale).sp, Look.Faint))
             }
         }
     }
 }
 
-/** the five times side by side; the next one sits in a soft gold capsule with its countdown */
+/** the five times side by side without any box; the next prayer is distinguished by Gold on its name, and its countdown sits centred at the bottom */
 @Composable
 private fun PrayerTable(d: DayState, now: Long, picks: Picks, scale: Float) = Block(scale) {
+    val next = d.line[d.next]
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp * scale)) {
         d.line.forEachIndexed { i, s ->
             val on = i == d.next
-            val shape = RoundedCornerShape(16.dp * scale)
             Column(
                 Modifier
                     .weight(1f)
-                    .then(
-                        if (on) Modifier.background(Brush.verticalGradient(listOf(Look.Gold.copy(alpha = .30f), Look.Gold.copy(alpha = .08f))), shape)
-                            .border(1.dp, Look.Gold.copy(alpha = .55f), shape) else Modifier
-                    )
-                    .padding(vertical = 12.dp * scale),
+                    .padding(vertical = 4.dp * scale),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(s.name, style = Look.style((13 * scale).sp, if (on) Look.Gold else if (i < d.next) Look.Faint else Look.Soft, FontWeight.Medium))
-                Spacer(Modifier.height(6.dp * scale))
+                Text(
+                    s.name,
+                    style = Look.style(
+                        (if (on) 14f * scale else 13f * scale).sp,
+                        if (on) Look.Gold else if (i < d.next) Look.Faint else Look.Soft,
+                        if (on) FontWeight.Bold else FontWeight.Medium,
+                    ),
+                )
+                Spacer(Modifier.height(5.dp * scale))
                 val t = clock12(s.at, picks.place.zone, picks.latinDigits)
-                Text(t.substringBefore(' '), style = Look.style((20 * scale).sp, if (i < d.next) Look.Faint else Look.Ink, big = true))
-                Text(t.substringAfter(' '), style = Look.style((10 * scale).sp, Look.Faint))
-                if (on) {
-                    Spacer(Modifier.height(4.dp * scale))
-                    Text(countdown(s.at - now, picks.latinDigits), style = Look.style((11 * scale).sp, Look.Gold, FontWeight.Medium))
-                }
+                Text(t.substringBefore(' '), style = Look.style((20 * scale).sp, if (i < d.next && !on) Look.Faint else Look.Ink, big = true))
+                Text(t.substringAfter(' '), style = Look.style((10 * scale).sp, if (on) Look.Gold else Look.Faint))
             }
         }
+    }
+    Spacer(Modifier.height(10.dp * scale))
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("متبقي على ${next.name}", style = Look.style((12 * scale).sp, Look.Soft, FontWeight.Medium))
+        Spacer(Modifier.width(8.dp * scale))
+        Text(countdown(next.at - now, picks.latinDigits), style = Look.style((15 * scale).sp, Look.Gold, big = true))
     }
 }
 
 // ================================================================ the game
 
 @Composable
-fun GameWidget(style: Int, game: Fixture, now: Long, picks: Picks, scale: Float) = when (style) {
-    1 -> GameBoard(game, now, picks, scale)
-    2 -> GameCountdown(game, now, picks, scale)
-    else -> GameCrests(game, now, picks, scale)
+fun GameWidget(
+    style: Int,
+    game: Fixture,
+    now: Long,
+    picks: Picks,
+    scale: Float,
+    gamesCount: Int = 1,
+    gameIndex: Int = 0,
+) = when (style) {
+    1 -> GameBoard(game, now, picks, scale, gamesCount, gameIndex)
+    2 -> GameCountdown(game, now, picks, scale, gamesCount, gameIndex)
+    else -> GameCrests(game, now, picks, scale, gamesCount, gameIndex)
 }
 
 private fun meta(game: Fixture, picks: Picks): String {
     val zone = picks.place.zone
-    return game.competition + "  " + weekday(game.kickoff, zone) + " " + gregorianDate(game.kickoff, zone, picks.latinDigits)
+    return game.competition + "  ·  " + weekday(game.kickoff, zone) + " " + gregorianDate(game.kickoff, zone, picks.latinDigits)
 }
 
 /** the crest's own colour: the average of its strongly coloured pixels, or none for a grey or white crest */
@@ -239,99 +261,325 @@ internal fun Crest(url: String?, size: Dp, halo: Dp? = null) {
     val glow = remember(bmp) { bmp?.let(::tone) }
     Box(Modifier.size(halo ?: size), contentAlignment = Alignment.Center) {
         if (halo != null && glow != null) {
-            Box(Modifier.size(halo).background(Brush.radialGradient(listOf(glow.copy(alpha = .38f), Color.Transparent))))
+            Box(Modifier.size(halo).background(Brush.radialGradient(listOf(glow.copy(alpha = .40f), Color.Transparent))))
         }
         if (bmp != null) Image(bmp.asImageBitmap(), contentDescription = null, modifier = Modifier.size(size))
     }
 }
 
-@Composable
-private fun KickOff(game: Fixture, now: Long, picks: Picks, size: Float, scale: Float) {
-    val live = game.kickoff <= now
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(if (live) "مباشر" else clock12(game.kickoff, picks.place.zone, picks.latinDigits),
-            style = Look.style((size * scale).sp, if (live) Look.Live else Look.Ink, big = true))
-        Text(if (live) "جارية الآن" else until(game.kickoff - now, picks.latinDigits), style = Look.style((12 * scale).sp, Look.Gold))
-    }
+internal fun isGameLive(game: Fixture, now: Long): Boolean =
+    game.isLive || (!game.isDone && game.kickoff <= now)
+
+internal fun liveScoreText(game: Fixture, picks: Picks): String? =
+    if (game.homeScore != null && game.awayScore != null)
+        Look.ltr("${Look.digits("${game.homeScore}", picks.latinDigits)} - ${Look.digits("${game.awayScore}", picks.latinDigits)}")
+    else null
+
+internal fun liveClockLabel(game: Fixture, picks: Picks): String {
+    val c = game.clock.takeIf { it.isNotBlank() && it != "مباشر" }
+    return if (c != null) "● مباشر · ${Look.digits(c, picks.latinDigits)}" else "● مباشر الآن"
 }
 
-/** the crests large, each on a halo of its colour, the names small under them, the time between */
+/** Modern stadium card with ambient glow crests, top competition badge and live pill */
 @Composable
-private fun GameCrests(game: Fixture, now: Long, picks: Picks, scale: Float) = Block(scale) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Crest(game.homeBadge, 46.dp * scale, 64.dp * scale)
-            Text(game.home, style = Look.style((13 * scale).sp, Look.Soft, FontWeight.Medium), maxLines = 1)
-        }
-        KickOff(game, now, picks, 26f, scale)
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Crest(game.awayBadge, 46.dp * scale, 64.dp * scale)
-            Text(game.away, style = Look.style((13 * scale).sp, Look.Soft, FontWeight.Medium), maxLines = 1)
-        }
-    }
-    Spacer(Modifier.height(6.dp * scale))
-    Text(meta(game, picks), style = Look.style((11 * scale).sp, Look.Faint), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-}
+private fun GameCrests(
+    game: Fixture,
+    now: Long,
+    picks: Picks,
+    scale: Float,
+    gamesCount: Int = 1,
+    gameIndex: Int = 0,
+) = Block(scale) {
+    val live = isGameLive(game, now)
+    val score = if (live) liveScoreText(game, picks) else null
+    val zone = picks.place.zone
 
-/** one bar like a broadcast's score strip: crest and name on each side, the time in a gold box in the middle */
-@Composable
-private fun GameBoard(game: Fixture, now: Long, picks: Picks, scale: Float) = Block(scale) {
-    Text(meta(game, picks), style = Look.style((12 * scale).sp, Look.Gold, FontWeight.Medium))
-    Spacer(Modifier.height(10.dp * scale))
-    val bar = RoundedCornerShape(14.dp * scale)
     Row(
-        Modifier.fillMaxWidth().background(Color(0x1AFFFFFF), bar).border(1.dp, Color(0x1FFFFFFF), bar).padding(6.dp * scale),
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.weight(1f).padding(horizontal = 8.dp * scale), verticalAlignment = Alignment.CenterVertically) {
-            Crest(game.homeBadge, 30.dp * scale)
-            Spacer(Modifier.width(10.dp * scale))
-            Text(game.home, style = Look.style((17 * scale).sp, big = true), maxLines = 1)
+        Box(
+            Modifier
+                .background(Color(0x24D4AF37), RoundedCornerShape(999.dp))
+                .border(0.5.dp, Look.Gold.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 8.dp * scale, vertical = 2.dp * scale)
+        ) {
+            Text(
+                game.competition,
+                style = Look.style((11 * scale).sp, Look.Gold, FontWeight.Medium),
+                maxLines = 1,
+            )
         }
-        val live = game.kickoff <= now
-        Box(Modifier.background(if (live) Look.Live else Look.Gold, RoundedCornerShape(10.dp * scale)).padding(horizontal = 14.dp * scale, vertical = 8.dp * scale)) {
-            Text(if (live) "مباشر" else clock12(game.kickoff, picks.place.zone, picks.latinDigits),
-                style = Look.style((16 * scale).sp, Color(0xFF15120C), big = true).copy(shadow = null))
-        }
-        Row(Modifier.weight(1f).padding(horizontal = 8.dp * scale), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
-            Text(game.away, style = Look.style((17 * scale).sp, big = true), maxLines = 1)
-            Spacer(Modifier.width(10.dp * scale))
-            Crest(game.awayBadge, 30.dp * scale)
+        if (live) {
+            Box(
+                Modifier
+                    .background(Color(0x33E53935), RoundedCornerShape(999.dp))
+                    .border(0.5.dp, Look.Live.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 8.dp * scale, vertical = 2.dp * scale)
+            ) {
+                Text(
+                    liveClockLabel(game, picks),
+                    style = Look.style((11 * scale).sp, Look.Live, FontWeight.Bold),
+                    maxLines = 1,
+                )
+            }
+        } else {
+            val kickoffDay = weekday(game.kickoff, zone)
+            val kickoffDate = gregorianDate(game.kickoff, zone, picks.latinDigits)
+            Text(
+                "$kickoffDay $kickoffDate",
+                style = Look.style((11 * scale).sp, Look.Soft, FontWeight.Normal),
+                maxLines = 1,
+            )
         }
     }
+
     Spacer(Modifier.height(8.dp * scale))
-    Text(if (game.kickoff <= now) "جارية الآن" else until(game.kickoff - now, picks.latinDigits), style = Look.style((12 * scale).sp, Look.Soft),
-        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Crest(game.homeBadge, 48.dp * scale, 68.dp * scale)
+            Spacer(Modifier.height(4.dp * scale))
+            Text(
+                game.home,
+                style = Look.style((13.5f * scale).sp, Look.Ink, FontWeight.SemiBold),
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+            )
+        }
+        Column(
+            Modifier.padding(horizontal = 4.dp * scale),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                if (live) (score ?: "مباشر") else clock12(game.kickoff, zone, picks.latinDigits),
+                style = Look.style(
+                    ((if (live && score != null) 28 else 24) * scale).sp,
+                    if (live && score == null) Look.Live else Look.Ink,
+                    big = true,
+                ),
+            )
+            Spacer(Modifier.height(2.dp * scale))
+            Text(
+                if (live) game.statusArabic
+                else until(game.kickoff - now, picks.latinDigits),
+                style = Look.style(
+                    (11.5f * scale).sp,
+                    if (live) Look.Live else Look.Gold,
+                    FontWeight.Medium,
+                ),
+            )
+        }
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Crest(game.awayBadge, 48.dp * scale, 68.dp * scale)
+            Spacer(Modifier.height(4.dp * scale))
+            Text(
+                game.away,
+                style = Look.style((13.5f * scale).sp, Look.Ink, FontWeight.SemiBold),
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+
+    if (gamesCount > 1) {
+        Spacer(Modifier.height(6.dp * scale))
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            repeat(gamesCount.coerceAtMost(8)) { idx ->
+                val active = idx == gameIndex
+                Box(
+                    Modifier
+                        .padding(horizontal = 2.5.dp)
+                        .size(if (active) 5.dp * scale else 3.5.dp * scale)
+                        .background(if (active) Look.Gold else Look.Gold.copy(alpha = 0.25f), CircleShape)
+                )
+            }
+        }
+    }
 }
 
-/** the time left as the hero: days, or hours and minutes, in large figures, the two crests overlapping beside it */
+/** Broadcast scoreboard bar: crest and name on each side, score or time in gold badge */
 @Composable
-private fun GameCountdown(game: Fixture, now: Long, picks: Picks, scale: Float) = Block(scale) {
-    val left = game.kickoff - now
-    val live = left <= 0
-    val days = left / 86_400_000L
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(92.dp * scale)) {
-            Crest(game.homeBadge, 52.dp * scale)
-            Box(Modifier.offset(x = 40.dp * scale, y = 10.dp * scale)) { Crest(game.awayBadge, 52.dp * scale) }
+private fun GameBoard(
+    game: Fixture,
+    now: Long,
+    picks: Picks,
+    scale: Float,
+    gamesCount: Int = 1,
+    gameIndex: Int = 0,
+) = Block(scale) {
+    val live = isGameLive(game, now)
+    val score = if (live) liveScoreText(game, picks) else null
+    val zone = picks.place.zone
+
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .background(Color(0x24D4AF37), RoundedCornerShape(999.dp))
+                .border(0.5.dp, Look.Gold.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 8.dp * scale, vertical = 2.dp * scale)
+        ) {
+            Text(game.competition, style = Look.style((11 * scale).sp, Look.Gold, FontWeight.Medium), maxLines = 1)
         }
-        Spacer(Modifier.width(18.dp * scale))
+        Text(
+            if (live) liveClockLabel(game, picks) else until(game.kickoff - now, picks.latinDigits),
+            style = Look.style((11 * scale).sp, if (live) Look.Live else Look.Soft, if (live) FontWeight.Bold else FontWeight.Normal),
+        )
+    }
+
+    Spacer(Modifier.height(8.dp * scale))
+
+    val bar = RoundedCornerShape(14.dp * scale)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color(0x540A0C12), Color(0x380A0C12))), bar)
+            .border(1.dp, Look.Gold.copy(alpha = 0.26f), bar)
+            .padding(8.dp * scale),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(Modifier.weight(1f).padding(horizontal = 6.dp * scale), verticalAlignment = Alignment.CenterVertically) {
+            Crest(game.homeBadge, 34.dp * scale)
+            Spacer(Modifier.width(8.dp * scale))
+            Text(game.home, style = Look.style((15 * scale).sp, Look.Ink, FontWeight.SemiBold), maxLines = 1)
+        }
+        Box(
+            Modifier
+                .background(if (live) Look.Live else Look.Gold, RoundedCornerShape(10.dp * scale))
+                .padding(horizontal = 14.dp * scale, vertical = 6.dp * scale)
+        ) {
+            Text(
+                if (live) (score ?: "مباشر") else clock12(game.kickoff, zone, picks.latinDigits),
+                style = Look.style((15 * scale).sp, if (live) Color.White else Color(0xFF15120C), big = true).copy(shadow = null),
+            )
+        }
+        Row(Modifier.weight(1f).padding(horizontal = 6.dp * scale), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+            Text(game.away, style = Look.style((15 * scale).sp, Look.Ink, FontWeight.SemiBold), maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+            Spacer(Modifier.width(8.dp * scale))
+            Crest(game.awayBadge, 34.dp * scale)
+        }
+    }
+
+    if (gamesCount > 1) {
+        Spacer(Modifier.height(6.dp * scale))
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            repeat(gamesCount.coerceAtMost(8)) { idx ->
+                val active = idx == gameIndex
+                Box(
+                    Modifier
+                        .padding(horizontal = 2.5.dp)
+                        .size(if (active) 5.dp * scale else 3.5.dp * scale)
+                        .background(if (active) Look.Gold else Look.Gold.copy(alpha = 0.25f), CircleShape)
+                )
+            }
+        }
+    }
+}
+
+/** Hero countdown card with overlapping crests and prominent countdown digits */
+@Composable
+private fun GameCountdown(
+    game: Fixture,
+    now: Long,
+    picks: Picks,
+    scale: Float,
+    gamesCount: Int = 1,
+    gameIndex: Int = 0,
+) = Block(scale) {
+    val left = game.kickoff - now
+    val live = isGameLive(game, now)
+    val score = if (live) liveScoreText(game, picks) else null
+    val days = left / 86_400_000L
+    val zone = picks.place.zone
+
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .background(Color(0x24D4AF37), RoundedCornerShape(999.dp))
+                .border(0.5.dp, Look.Gold.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 8.dp * scale, vertical = 2.dp * scale)
+        ) {
+            Text(game.competition, style = Look.style((11 * scale).sp, Look.Gold, FontWeight.Medium), maxLines = 1)
+        }
+        if (live) {
+            Text(liveClockLabel(game, picks), style = Look.style((11 * scale).sp, Look.Live, FontWeight.Bold))
+        } else {
+            Text(clock12(game.kickoff, zone, picks.latinDigits), style = Look.style((11.5f * scale).sp, Look.Soft))
+        }
+    }
+
+    Spacer(Modifier.height(6.dp * scale))
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(88.dp * scale)) {
+            Crest(game.homeBadge, 46.dp * scale, 58.dp * scale)
+            Box(Modifier.offset(x = 34.dp * scale, y = 6.dp * scale)) {
+                Crest(game.awayBadge, 46.dp * scale, 58.dp * scale)
+            }
+        }
+        Spacer(Modifier.width(14.dp * scale))
         Column(Modifier.weight(1f)) {
-            Text("${game.home} × ${game.away}", style = Look.style((15 * scale).sp, Look.Ink, FontWeight.Medium), maxLines = 1)
-            Text(meta(game, picks), style = Look.style((11 * scale).sp, Look.Faint), maxLines = 1)
-            Text(clock12(game.kickoff, picks.place.zone, picks.latinDigits), style = Look.style((12 * scale).sp, Look.Soft))
+            Text("${game.home} × ${game.away}", style = Look.style((15 * scale).sp, Look.Ink, FontWeight.SemiBold), maxLines = 1)
+            Spacer(Modifier.height(2.dp * scale))
+            Text(
+                if (live) game.statusArabic
+                else until(game.kickoff - now, picks.latinDigits),
+                style = Look.style((11.5f * scale).sp, if (live) Look.Live else Look.Gold, FontWeight.Medium),
+                maxLines = 1,
+            )
         }
         Column(horizontalAlignment = Alignment.End) {
             val big = when {
-                live -> "مباشر"
+                live -> score ?: "مباشر"
                 days >= 1 -> Look.digits(days.toString(), picks.latinDigits)
                 else -> countdown(left, picks.latinDigits)
             }
-            Text(big, style = Look.style(((if (days >= 1 && !live) 44 else 28) * scale).sp, if (live) Look.Live else Look.Ink, big = true))
+            Text(big, style = Look.style(((if (days >= 1 && !live) 36 else 24) * scale).sp, if (live) Look.Live else Look.Ink, big = true))
             Text(
-                when { live -> "جارية الآن"; days >= 2 -> "أيام"; days == 1L -> "يوم"; else -> "على البداية" },
-                style = Look.style((12 * scale).sp, Look.Gold, FontWeight.Medium),
+                when {
+                    live -> "النتيجة"
+                    days >= 2 -> "أيام"
+                    days == 1L -> "يوم"
+                    else -> "على البداية"
+                },
+                style = Look.style((11 * scale).sp, if (live) Look.Live else Look.Soft),
             )
+        }
+    }
+
+    if (gamesCount > 1) {
+        Spacer(Modifier.height(6.dp * scale))
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            repeat(gamesCount.coerceAtMost(8)) { idx ->
+                val active = idx == gameIndex
+                Box(
+                    Modifier
+                        .padding(horizontal = 2.5.dp)
+                        .size(if (active) 5.dp * scale else 3.5.dp * scale)
+                        .background(if (active) Look.Gold else Look.Gold.copy(alpha = 0.25f), CircleShape)
+                )
+            }
         }
     }
 }
@@ -365,33 +613,34 @@ internal fun skyWord(code: Int) = when (code) {
 
 /** the drawing and the temperature; the city and the day's range at the other end */
 @Composable
-private fun SkyIcon(sky: Sky, picks: Picks, scale: Float) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp * scale), verticalAlignment = Alignment.CenterVertically) {
-        SkyGlyph(sky.code, sky.day, 44.dp * scale)
+private fun SkyIcon(sky: Sky, picks: Picks, scale: Float) = Block(scale) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        SkyGlyph(sky.code, sky.day, 46.dp * scale)
         Spacer(Modifier.width(14.dp * scale))
-        Text(deg(sky.temp, picks), style = Look.style((34 * scale).sp, big = true))
+        Text(deg(sky.temp, picks), style = Look.style((36 * scale).sp, big = true))
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End) {
             Text(picks.place.name, style = Look.style((14 * scale).sp, Look.Gold, FontWeight.Medium))
             Spacer(Modifier.height(2.dp))
-            Text(Look.ltr("↑ ${deg(sky.high, picks)}   ↓ ${deg(sky.low, picks)}"), style = Look.style((15 * scale).sp, Look.Soft))
+            Text(Look.ltr("↑ ${deg(sky.high, picks)}   ↓ ${deg(sky.low, picks)}"), style = Look.style((14 * scale).sp, Look.Soft))
         }
     }
 }
 
-/** the temperature very large with the sky's word under it, the drawing beside, and a slim bar for the day's range */
+/** the temperature large with the sky's word beside it, and a slim bar for the day's range */
 @Composable
 private fun SkyBig(sky: Sky, picks: Picks, scale: Float) = Block(scale) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(deg(sky.temp, picks), style = Look.style((54 * scale).sp, big = true).copy(lineHeight = (56 * scale).sp))
-            Text(listOf(skyWord(sky.code), picks.place.name).filter { it.isNotEmpty() }.joinToString(" في "),
-                style = Look.style((15 * scale).sp, Look.Ink, FontWeight.Medium))
+            Text(deg(sky.temp, picks), style = Look.style((46 * scale).sp, big = true).copy(lineHeight = (48 * scale).sp))
+            Text(
+                listOf(skyWord(sky.code), picks.place.name).filter { it.isNotEmpty() }.joinToString(" في "),
+                style = Look.style((14.5f * scale).sp, Look.Ink, FontWeight.Medium),
+            )
         }
-        SkyGlyph(sky.code, sky.day, 64.dp * scale)
+        SkyGlyph(sky.code, sky.day, 56.dp * scale)
     }
-    Spacer(Modifier.height(10.dp * scale))
-    // where now sits between the day's low and high
+    Spacer(Modifier.height(8.dp * scale))
     val span = (sky.high - sky.low).coerceAtLeast(1.0)
     val at = ((sky.temp - sky.low) / span).toFloat().coerceIn(0f, 1f)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -400,7 +649,7 @@ private fun SkyBig(sky: Sky, picks: Picks, scale: Float) = Block(scale) {
         Spacer(Modifier.width(8.dp * scale))
         Canvas(Modifier.weight(1f).height(8.dp * scale)) {
             val y = size.height / 2
-            val start = if (rtl) size.width else 0f   // the low end, beside the low figure
+            val start = if (rtl) size.width else 0f
             val end = size.width - start
             drawLine(
                 Brush.linearGradient(listOf(Color(0xFF8EC5FF), Color(0xFFFFC857)), Offset(start, y), Offset(end, y)),
@@ -413,29 +662,31 @@ private fun SkyBig(sky: Sky, picks: Picks, scale: Float) = Block(scale) {
     }
 }
 
-/** now, then the next five hours each with its time, drawing and temperature */
+/** now, then the next five hours floating cleanly side by side */
 @Composable
 private fun SkyHours(sky: Sky, picks: Picks, scale: Float) = Block(scale) {
     val soon = sky.hours.filter { it.at > System.currentTimeMillis() }.take(5)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            SkyGlyph(sky.code, sky.day, 40.dp * scale)
+            SkyGlyph(sky.code, sky.day, 38.dp * scale)
             Text(deg(sky.temp, picks), style = Look.style((24 * scale).sp, big = true))
             Text("الآن", style = Look.style((11 * scale).sp, Look.Gold, FontWeight.Medium))
         }
-        Spacer(Modifier.width(14.dp * scale))
-        Box(Modifier.width(1.dp / 2).height(70.dp * scale).background(Look.Gold.copy(alpha = .4f)))
+        Spacer(Modifier.width(12.dp * scale))
+        Box(Modifier.width(1.dp / 2).height(64.dp * scale).background(Look.Gold.copy(alpha = .4f)))
         Spacer(Modifier.width(6.dp * scale))
         if (soon.isEmpty()) {
             Text(picks.place.name, style = Look.style((14 * scale).sp, Look.Gold))
         } else soon.forEach { h ->
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                SkyGlyph(h.code, h.day, 26.dp * scale)
+                SkyGlyph(h.code, h.day, 24.dp * scale)
                 Spacer(Modifier.height(4.dp * scale))
                 Text(deg(h.temp, picks), style = Look.style((14 * scale).sp, Look.Ink, FontWeight.Medium))
                 val hour = cityTime(h.at, picks.place.zone).get(Calendar.HOUR_OF_DAY)
-                Text(Look.digits("${if (hour % 12 == 0) 12 else hour % 12}", picks.latinDigits) + if (hour < 12) " ص" else " م",
-                    style = Look.style((10 * scale).sp, Look.Faint))
+                Text(
+                    Look.digits("${if (hour % 12 == 0) 12 else hour % 12}", picks.latinDigits) + if (hour < 12) " ص" else " م",
+                    style = Look.style((10 * scale).sp, Look.Faint),
+                )
             }
         }
     }

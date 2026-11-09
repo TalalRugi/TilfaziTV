@@ -2,6 +2,8 @@ package app.tilfazi.tv.look
 
 import android.content.Context
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -81,7 +85,7 @@ fun FittedText(text: String, style: TextStyle, maxLines: Int, modifier: Modifier
     var factor by remember(text, maxLines) { mutableFloatStateOf(1f) }
     Text(
         text,
-        style = style.copy(fontSize = style.fontSize * factor, lineHeight = style.fontSize * factor * 1.7f),
+        style = style.copy(fontSize = style.fontSize * factor, lineHeight = style.fontSize * factor * 1.65f),
         maxLines = maxLines,
         textAlign = TextAlign.Center,
         onTextLayout = { if (it.hasVisualOverflow && factor > .6f) factor *= .9f },
@@ -89,9 +93,9 @@ fun FittedText(text: String, style: TextStyle, maxLines: Int, modifier: Modifier
     )
 }
 
-/** a small eight-pointed star in gold lines, the ornament between the words and their source */
+/** a small eight-pointed star in gold lines */
 @Composable
-private fun Star(size: Float, alpha: Float = .8f) {
+private fun Star(size: Float, alpha: Float = .85f) {
     Canvas(Modifier.size(size.dp)) {
         val c = Offset(this.size.width / 2, this.size.height / 2)
         val side = this.size.minDimension * .62f
@@ -101,67 +105,81 @@ private fun Star(size: Float, alpha: Float = .8f) {
     }
 }
 
-/** a gold hairline, a star, and another hairline */
 @Composable
 private fun Divider(scale: Float) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Hairline(Modifier.weight(1f))
-        Box(Modifier.padding(horizontal = 10.dp * scale)) { Star(14 * scale) }
+        Box(Modifier.padding(horizontal = 10.dp * scale)) { Star(13 * scale) }
         Hairline(Modifier.weight(1f))
     }
 }
 
 @Composable
-private fun Label(title: String, scale: Float) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun SpiritualHeader(title: String, sourcePill: String, scale: Float) {
+    val pill = RoundedCornerShape(50)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Star(12 * scale, .9f)
-        Spacer(Modifier.width(8.dp * scale))
-        Text(title, style = Look.style((13 * scale).sp, Look.Gold, FontWeight.Medium))
+        Spacer(Modifier.width(7.dp * scale))
+        Text(title, style = Look.style((12 * scale).sp, Look.Gold, FontWeight.Medium), modifier = Modifier.weight(1f))
+        Box(
+            Modifier
+                .background(Brush.verticalGradient(listOf(Color(0x540A0C12), Color(0x380A0C12))), pill)
+                .border(1.dp, Look.Gold.copy(alpha = 0.35f), pill)
+                .padding(horizontal = 10.dp * scale, vertical = 2.5.dp * scale),
+        ) {
+            Text(sourcePill, style = Look.style((10.5f * scale).sp, Look.Soft, FontWeight.Medium), maxLines = 1)
+        }
     }
 }
 
-/** the day's verse: its text in Amiri between ornate brackets, centred, the surah and verse numbers under a star */
+/** the day's verse: Bento card with header pill and centred Amiri calligraphy */
 @Composable
 fun VerseWidget(now: Long, picks: Picks, scale: Float, large: Boolean) {
     val c = LocalContext.current
     val v = remember(now / 3_600_000L, picks.place.zone, large) { Words.verse(c, now, picks.place.zone, large) } ?: return
     val numbers = Look.digits(if (v.to > v.from) "${v.from}–${v.to}" else "${v.from}", picks.latinDigits)
-    Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 12.dp * scale), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.fillMaxWidth()) { Label("آية اليوم", scale) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp * scale), horizontalAlignment = Alignment.CenterHorizontally) {
+        SpiritualHeader("آية اليوم", "سورة ${v.surah} · $numbers", scale)
         Spacer(Modifier.height((if (large) 14 else 8).dp * scale))
         val body = (if (v.to > v.from) "" else "﴿ ") + v.text + (if (v.to > v.from) "" else " ﴾")
         FittedText(
             body,
-            TextStyle(fontFamily = Look.scripture, fontSize = ((if (large) 25 else 21) * scale).sp, color = Look.Ink),
+            TextStyle(fontFamily = Look.scripture, fontSize = ((if (large) 25 else 20) * scale).sp, color = Look.Ink),
             maxLines = if (large) 7 else 3,
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height((if (large) 14 else 8).dp * scale))
-        if (large) Divider(scale)
-        Text("سورة ${v.surah}، الآية $numbers", style = Look.style((12 * scale).sp, Look.Soft), modifier = Modifier.padding(top = 4.dp * scale))
+        if (large) {
+            Spacer(Modifier.height(14.dp * scale))
+            Divider(scale)
+        }
     }
 }
 
-/** the day's hadith: the words between «», the narrator and the book under a star */
+/** the day's hadith: Bento card with header pill and centred Amiri calligraphy */
 @Composable
 fun HadithWidget(now: Long, picks: Picks, scale: Float, large: Boolean) {
     val c = LocalContext.current
     val h = remember(now / 3_600_000L, picks.place.zone, large) { Words.hadith(c, now, picks.place.zone, large) } ?: return
-    // the honorific for one companion, or «عنهما» for two, or for a companion whose father was one too, as al-Nawawi has it
     val two = h.narrator.split(' ').any { it.startsWith("و") } || h.narrator.startsWith("عبد الله بن عمر") || h.narrator.startsWith("الحسن")
     val honour = if (two) "رضي الله عنهما" else "رضي الله عنه"
-    Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 12.dp * scale), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.fillMaxWidth()) { Label("حديث اليوم", scale) }
-        Spacer(Modifier.height((if (large) 14 else 8).dp * scale))
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp * scale), horizontalAlignment = Alignment.CenterHorizontally) {
+        SpiritualHeader("حديث اليوم", "رواه ${h.source}", scale)
+        Spacer(Modifier.height((if (large) 14 else 6).dp * scale))
         FittedText(
             "«${h.text}»",
-            TextStyle(fontFamily = Look.scripture, fontSize = ((if (large) 23 else 20) * scale).sp, color = Look.Ink),
-            maxLines = if (large) 7 else 3,
+            TextStyle(fontFamily = Look.scripture, fontSize = ((if (large) 23 else 19) * scale).sp, color = Look.Ink),
+            maxLines = if (large) 6 else 3,
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height((if (large) 14 else 8).dp * scale))
-        if (large) Divider(scale)
-        Text("عن ${h.narrator} $honour، رواه ${h.source}", style = Look.style((12 * scale).sp, Look.Soft), textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 4.dp * scale))
+        if (large) {
+            Spacer(Modifier.height(12.dp * scale))
+            Divider(scale)
+            Text(
+                "عن ${h.narrator} $honour",
+                style = Look.style((11.5f * scale).sp, Look.Soft),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 4.dp * scale),
+            )
+        }
     }
 }

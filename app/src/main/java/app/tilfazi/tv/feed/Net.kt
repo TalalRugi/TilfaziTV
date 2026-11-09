@@ -12,7 +12,7 @@ object Net {
         val con = URL(url).openConnection() as HttpURLConnection
         con.connectTimeout = 8_000
         con.readTimeout = 15_000
-        con.setRequestProperty("User-Agent", "TilfaziTV/0.1")
+        con.setRequestProperty("User-Agent", "TilfaziTV/2.0")
         headers.forEach { (k, v) -> con.setRequestProperty(k, v) }
         try {
             if (con.responseCode !in 200..299) error("HTTP ${con.responseCode} for $url")

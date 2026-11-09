@@ -71,7 +71,7 @@ private fun digital(now: Long, picks: Picks): String {
 }
 
 private fun upcoming(now: Long, picks: Picks): String {
-    val next = Salah.next(now, picks.place) ?: return ""
+    val next = Salah.next(now, picks) ?: return ""
     return "${next.name} بعد ${countdown(next.at - now, picks.latinDigits)}"
 }
 
@@ -172,7 +172,9 @@ internal fun WordsScene(board: Board, picks: Picks) {
 internal fun OrbitScene(board: Board, picks: Picks) {
     val (h, m, _) = clockOf(board.now, picks.place.zone)
     // the time read on every frame, so the seconds dot glides round without a jump each second
-    val frame by produceState(System.currentTimeMillis()) { while (true) withFrameMillis { value = System.currentTimeMillis() } }
+    val frame by produceState(System.currentTimeMillis(), Look.still) {
+        if (!Look.still) while (true) withFrameMillis { value = System.currentTimeMillis() }
+    }
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF1A1B20), Color(0xFF09090B)))), contentAlignment = Alignment.Center) {
         Canvas(Modifier.padding(bottom = 60.dp).size(380.dp)) {
             val c = Offset(size.width / 2, size.height / 2)
@@ -258,8 +260,8 @@ internal fun PatternScene(board: Board, picks: Picks) {
 
 /** the sky's two colours (top, horizon) for the time of day, from the prayer times and the sun */
 private fun skyColours(now: Long, picks: Picks): Pair<Color, Color> {
-    val day = Salah.day(now, picks.place)
-    val (rise, set) = Salah.sun(now, picks.place)
+    val day = Salah.day(now, picks)
+    val (rise, set) = Salah.sun(now, picks)
     val night = Color(0xFF070A18) to Color(0xFF1B2140)
     val dawn = Color(0xFF2A2350) to Color(0xFFE3A07A)
     val noon = Color(0xFF3C7BC7) to Color(0xFFBFD8EE)
@@ -285,7 +287,7 @@ private fun skyColours(now: Long, picks: Picks): Pair<Color, Color> {
 internal fun DunesScene(board: Board, picks: Picks) {
     val now = board.now
     val (top, horizon) = skyColours(now, picks)
-    val (rise, set) = Salah.sun(now, picks.place)
+    val (rise, set) = Salah.sun(now, picks)
     val day = now in rise..set
     val across = if (day) (now - rise).toFloat() / (set - rise) else 0.75f
     Box(Modifier.fillMaxSize()) {

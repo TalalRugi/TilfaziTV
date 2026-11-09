@@ -38,6 +38,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -131,8 +132,15 @@ fun Pill(icon: Painter, name: String, onOk: () -> Unit, onFocus: () -> Unit) {
             .okKeys(onOk, onOk)
             .focusable()
             .clip(CircleShape)
-            .background(if (focused) Color(0xF2FFFFFF) else Color(0x26FFFFFF))
-            .border(1.dp, Color(0x1FFFFFFF), CircleShape)
+            .background(
+                if (focused) Brush.verticalGradient(listOf(Color(0xF2FFFFFF), Color(0xE6FFFFFF)))
+                else Brush.verticalGradient(listOf(Color(0x590A0C12), Color(0x3D0A0C12)))
+            )
+            .border(
+                1.dp,
+                if (focused) Color.White else Look.Gold.copy(alpha = 0.28f),
+                CircleShape,
+            )
             .animateContentSize()
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -45,11 +45,10 @@ object Look {
     var still by mutableStateOf(false)
 
     /**
-     * The fonts: Alyamama, shipped with the app, and any the owner's agent added on the TV, in tilfazi's own folder
-     * (Android/data/app.tilfazi.tv/files/fonts). A file named Name-Bold.ttf, Name-Regular.otf… is one weight of Name;
-     * a single file is a variable font set to each weight.
+     * The fonts: Thmanyah (Sans & Serif Display), shipped with the app, and any the owner's agent added on the TV, in
+     * tilfazi's own folder (Android/data/app.tilfazi.tv/files/fonts).
      */
-    var FONTS by mutableStateOf(listOf("اليمامة"))
+    var FONTS by mutableStateOf(listOf("ثمانية", "ثمانية سيرف"))
         private set
     val available get() = FONTS.indices.toList()
 
@@ -58,16 +57,29 @@ object Look {
         val set = c.getSharedPreferences("choices", Context.MODE_PRIVATE).getInt("look.font", 0)
         val weights = listOf(FontWeight.Light, FontWeight.Normal, FontWeight.Medium, FontWeight.Bold)
         fun variable(make: (FontWeight, FontVariation.Settings) -> Font) = weights.map { w -> make(w, FontVariation.Settings(FontVariation.weight(w.weight))) }
-        val built = variable { w, v -> Font("fonts/Alyamama.ttf", c.assets, w, variationSettings = v) }
+        val builtSans = listOf(
+            Font("fonts/thmanyahsans-Light.otf", c.assets, FontWeight.Light),
+            Font("fonts/thmanyahsans-Regular.otf", c.assets, FontWeight.Normal),
+            Font("fonts/thmanyahsans-Medium.otf", c.assets, FontWeight.Medium),
+            Font("fonts/thmanyahsans-Bold.otf", c.assets, FontWeight.Bold),
+        )
+        val builtSerif = listOf(
+            Font("fonts/thmanyahserifdisplay-Regular.otf", c.assets, FontWeight.Light),
+            Font("fonts/thmanyahserifdisplay-Regular.otf", c.assets, FontWeight.Normal),
+            Font("fonts/thmanyahserifdisplay-Medium.otf", c.assets, FontWeight.Medium),
+            Font("fonts/thmanyahserifdisplay-Bold.otf", c.assets, FontWeight.Bold),
+        )
 
         val added = (c.getExternalFilesDir("fonts")?.listFiles().orEmpty())
             .filter { it.isFile && it.extension.lowercase() in setOf("ttf", "otf") }
             .groupBy { it.nameWithoutExtension.substringBefore('[').substringBefore('-').substringBefore('_') }
             .toSortedMap()
-        FONTS = listOf("اليمامة") + added.keys
-        val files = added.values.toList().getOrNull(set - 1)
+        FONTS = listOf("ثمانية", "ثمانية سيرف") + added.keys
+        val files = added.values.toList().getOrNull(set - 2)
         val faces = when {
-            files == null -> built
+            set == 0 -> builtSans
+            set == 1 -> builtSerif
+            files == null -> builtSans
             files.size == 1 -> variable { w, v -> Font(files[0], w, variationSettings = v) }
             else -> files.map { f ->
                 val n = f.nameWithoutExtension.lowercase()
@@ -81,7 +93,7 @@ object Look {
                 })
             }
         }
-        val family = runCatching { FontFamily(faces) }.getOrElse { FontFamily(built) }
+        val family = runCatching { FontFamily(faces) }.getOrElse { FontFamily(builtSans) }
         text = family
         figures = family
         scripture = FontFamily(Font("fonts/Amiri-Regular.ttf", c.assets, FontWeight.Normal), Font("fonts/Amiri-Bold.ttf", c.assets, FontWeight.Bold))

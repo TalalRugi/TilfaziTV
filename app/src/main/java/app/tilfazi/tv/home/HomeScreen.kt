@@ -43,8 +43,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus. FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -55,9 +56,11 @@ import app.tilfazi.tv.R
 import app.tilfazi.tv.feed.Choices
 import app.tilfazi.tv.feed.Shelf
 import app.tilfazi.tv.feed.Title
+import app.tilfazi.tv.look.Hairline
 import app.tilfazi.tv.look.Look
 import app.tilfazi.tv.look.Scenery
 import app.tilfazi.tv.look.Stage
+import app.tilfazi.tv.look.TopClockPill
 import app.tilfazi.tv.look.rememberBoard
 import app.tilfazi.tv.setup.SetupActivity
 import kotlinx.coroutines.Dispatchers
@@ -119,6 +122,60 @@ fun HomeScreen(homeAgain: Int, appsChanged: Int, sourceKey: Int = 0) {
     // a favourite carried along the row: ◀ ▶ move it a place, OK or Back puts it down
     var movingFav by remember { mutableStateOf<String?>(null) }
     val favFocus = remember { mutableMapOf<String, FocusRequester>() }
+
+    // League widget interactive browsing mode
+    val leagueFocus = remember { FocusRequester() }
+    var browsingLeague by remember { mutableStateOf(false) }
+    var leagueIndex by remember { mutableIntStateOf(0) }
+    var leagueScroll by remember { mutableIntStateOf(0) }
+
+    fun handleLeagueKey(k: KeyEvent): Boolean {
+        if (!browsingLeague) return false
+        if (k.action != KeyEvent.ACTION_DOWN) {
+            return k.keyCode in listOf(
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE
+            )
+        }
+        val allEnabled = (picks.leagues + picks.clubIds.mapNotNull { app.tilfazi.tv.feed.Clubs.find(it)?.league }).distinct()
+        val availableList = allEnabled.mapNotNull { l ->
+            board.tables[l] ?: board.tables.values.firstOrNull { it.league == app.tilfazi.tv.feed.Clubs.leagueName(l) }
+        }.filter { it.rows.isNotEmpty() }.distinctBy { it.league }
+        val tablesCount = (if (availableList.isNotEmpty()) availableList.size
+            else board.tables.values.filter { it.rows.isNotEmpty() }.distinctBy { it.league }.size).coerceAtLeast(1)
+        return when (k.keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> { // In RTL, left moves forward through leagues
+                leagueIndex = (leagueIndex + 1) % tablesCount
+                leagueScroll = 0
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { // In RTL, right moves backward through leagues
+                leagueIndex = (leagueIndex - 1 + tablesCount) % tablesCount
+                leagueScroll = 0
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                leagueScroll = (leagueScroll + 1).coerceAtMost(14)
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                leagueScroll = (leagueScroll - 1).coerceAtLeast(0)
+                true
+            }
+            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                browsingLeague = false
+                leagueScroll = 0
+                true
+            }
+            else -> false
+        }
+    }
+
+    BackHandler(enabled = browsingLeague) {
+        browsingLeague = false
+        leagueScroll = 0
+    }
     fun moveFavKey(k: KeyEvent, pkg: String): Boolean {
         val arrows = listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN)
         if (k.action != KeyEvent.ACTION_DOWN) return k.keyCode in arrows
@@ -143,12 +200,12 @@ fun HomeScreen(homeAgain: Int, appsChanged: Int, sourceKey: Int = 0) {
         val shift by animateDpAsState(
             if (row < 0) 0.dp else screen - 96.dp + rowStep * (row - 1).coerceAtLeast(0), tween(450), label = "shift",
         )
-        Scenery(board, picks.looks, picks.place, dimmer = if (browsing) 0.55f else 0f) {
+        Scenery(board, picks.looks, picks.place, dimmer = if (browsing) 0.55f else 0f, picks = picks) {
             Column(Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true).offset(y = -shift)) {
                 Box(Modifier.fillMaxWidth().height(screen)) {
                     // the buttons: top left (End is the left in Arabic)
                     Row(
-                        Modifier.align(Alignment.TopEnd).padding(top = 32.dp, end = 48.dp),
+                        Modifier.align(Alignment.TopEnd).padding(top = 26.dp, end = 48.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         val onTop = { row = -1; onFirst = false }
@@ -156,57 +213,102 @@ fun HomeScreen(homeAgain: Int, appsChanged: Int, sourceKey: Int = 0) {
                         Pill(painterResource(R.drawable.sliders), "الإعدادات", { c.open(Intent(Settings.ACTION_SETTINGS)) }, onTop)
                         Pill(painterResource(R.drawable.crescent), "إعدادات تلفازي", { c.open(Intent(c, SetupActivity::class.java)) }, onTop)
                     }
-                    // the app's name, top right, level with the buttons
+                    // the app's name + live clock & dates, top right, level with the buttons
                     Row(
-                        Modifier.align(Alignment.TopStart).padding(top = 36.dp, start = 56.dp),
+                        Modifier.align(Alignment.TopStart).padding(top = 26.dp, start = 52.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(painterResource(R.drawable.crescent), null, tint = Look.Gold, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("تلفازي", style = Look.style(20.sp, Look.Ink, big = true))
+                        Box(
+                            Modifier
+                                .padding(horizontal = 16.dp)
+                                .width(1.dp)
+                                .height(18.dp)
+                                .background(Look.Gold.copy(alpha = 0.38f))
+                        )
+                        TopClockPill(board.now, picks)
                     }
 
                     Stage(
-                        board, picks,
-                        Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = 82.dp, start = 56.dp, end = 48.dp).height(300.dp),
+                        board = board,
+                        picks = picks,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .padding(top = 76.dp, start = 48.dp, end = 48.dp)
+                            .height(306.dp)
+                            .onPreviewKeyEvent { e -> handleLeagueKey(e.nativeKeyEvent) },
+                        leagueFocusRequester = leagueFocus,
+                        isBrowsingLeague = browsingLeague,
+                        onLeagueClick = {
+                            browsingLeague = !browsingLeague
+                            leagueScroll = 0
+                        },
+                        onLeagueFocusChanged = { focused ->
+                            if (focused) {
+                                row = -1
+                                onFirst = false
+                            } else {
+                                browsingLeague = false
+                            }
+                        },
+                        leagueIndex = leagueIndex,
+                        leagueScroll = leagueScroll,
                     )
 
-                    // the favourites, in a soft band at the bottom
+                    // the favourites, separated from the stage by a delicate gold hairline when borderless, or in a dark band
                     val gap = 16.dp
                     // the cards are always sized for a full row of six, so the band keeps its height with fewer
                     val tile = (wide - 96.dp - 40.dp - gap * (Shelf.MAX_FAVOURITES - 1)) / Shelf.MAX_FAVOURITES
                     // with no favourites the band itself takes the focus, so a held OK still reaches the editor
                     var bandFocused by remember { mutableStateOf(false) }
-                    Row(
+                    val boxedFavs = picks.looks.cards > 0
+                    Column(
                         Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(start = 48.dp, end = 48.dp, bottom = 32.dp)
-                            .fillMaxWidth()
-                            .background(Color(0x1FFFFFFF), RoundedCornerShape(26.dp))
-                            .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(26.dp))
-                            .then(if (favourites.isEmpty()) Modifier.height(tile * 9f / 16f + 44.dp).focusRequester(firstFavourite)
-                                .onFocusChanged { bandFocused = it.isFocused; if (it.isFocused) { row = -1; onFirst = true } }
-                                .okKeys({}, { c.editFavourites() }).focusable()
-                                .border(1.dp, if (bandFocused) Color(0x66FFFFFF) else Color.Transparent, RoundedCornerShape(26.dp)) else Modifier)
-                            .padding(horizontal = 20.dp, vertical = 22.dp),
-                        horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .padding(start = 48.dp, end = 48.dp, bottom = 30.dp)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        if (favourites.isEmpty() && bandFocused) Text("اضغط OK مطوّلاً لاختيار تطبيقاتك", style = Look.style(14.sp, Look.Faint))
-                        favourites.forEachIndexed { i, app ->
-                            val fr = favFocus.getOrPut(app.pkg) { FocusRequester() }
-                            val up = movingFav == app.pkg
-                            AppTile(
-                                app, tile,
-                                onFocus = { row = -1; onFirst = i == 0 },
-                                onOk = { if (up) movingFav = null else c.open(app.open) },
-                                onHold = { if (!up) menuFor = app },
-                                showName = false,
-                                lifted = up,
-                                modifier = (if (i == 0) Modifier.focusRequester(firstFavourite) else Modifier)
-                                    .focusRequester(fr).onPreviewKeyEvent { e -> up && moveFavKey(e.nativeKeyEvent, app.pkg) },
-                            )
-                            LaunchedEffect(i, up) { if (up) runCatching { fr.requestFocus() } }   // the focus follows the moved app
+                        if (!boxedFavs) {
+                            Hairline(Modifier.fillMaxWidth())
+                            Spacer(Modifier.height(22.dp))
+                        }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (boxedFavs) Modifier
+                                        .background(Brush.verticalGradient(listOf(Color(0x590A0C12), Color(0x3D0A0C12))), RoundedCornerShape(26.dp))
+                                        .border(1.dp, Brush.verticalGradient(listOf(Look.Gold.copy(alpha = 0.28f), Color(0x14FFFFFF))), RoundedCornerShape(26.dp))
+                                        .padding(horizontal = 20.dp, vertical = 22.dp)
+                                    else Modifier.padding(horizontal = 20.dp)
+                                )
+                                .then(if (favourites.isEmpty()) Modifier.height(tile * 9f / 16f + 44.dp).focusRequester(firstFavourite)
+                                    .onFocusChanged { bandFocused = it.isFocused; if (it.isFocused) { row = -1; onFirst = true } }
+                                    .okKeys({}, { c.editFavourites() }).focusable()
+                                    .border(1.dp, if (bandFocused) Color(0x66FFFFFF) else Color.Transparent, RoundedCornerShape(26.dp)) else Modifier),
+                            horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (favourites.isEmpty() && bandFocused) Text("اضغط OK مطوّلاً لاختيار تطبيقاتك", style = Look.style(14.sp, Look.Faint))
+                            favourites.forEachIndexed { i, app ->
+                                val fr = favFocus.getOrPut(app.pkg) { FocusRequester() }
+                                val up = movingFav == app.pkg
+                                AppTile(
+                                    app, tile,
+                                    onFocus = { row = -1; onFirst = i == 0 },
+                                    onOk = { if (up) movingFav = null else c.open(app.open) },
+                                    onHold = { if (!up) menuFor = app },
+                                    showName = false,
+                                    lifted = up,
+                                    modifier = (if (i == 0) Modifier.focusRequester(firstFavourite) else Modifier)
+                                        .focusRequester(fr).onPreviewKeyEvent { e -> up && moveFavKey(e.nativeKeyEvent, app.pkg) },
+                                )
+                                LaunchedEffect(i, up) { if (up) runCatching { fr.requestFocus() } }   // the focus follows the moved app
+                            }
                         }
                     }
                 }

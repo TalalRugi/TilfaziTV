@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import app.tilfazi.tv.feed.Clubs
 import app.tilfazi.tv.feed.Feeds
 import app.tilfazi.tv.feed.Fixture
 import app.tilfazi.tv.feed.Gallery
@@ -30,6 +31,7 @@ class Board {
     var fixtures by mutableStateOf<List<Fixture>>(emptyList())
     var results by mutableStateOf<List<Fixture>>(emptyList())
     var table by mutableStateOf<app.tilfazi.tv.feed.Table?>(null)
+    var tables by mutableStateOf<Map<String, app.tilfazi.tv.feed.Table>>(emptyMap())
     var photo by mutableStateOf<Bitmap?>(null)
     var photoBy by mutableStateOf("")
     /** bumped when the owner's photos may have changed (read permission just granted): they are looked for again */
@@ -59,23 +61,64 @@ fun rememberBoard(picks: Picks): Board {
             delay(HALF_HOUR)
         }
     }
-    LaunchedEffect(picks.clubId) {
-        val club = picks.clubId
-        if (club == null) { board.fixtures = emptyList(); board.results = emptyList(); board.table = null; return@LaunchedEffect }
-        withContext(Dispatchers.IO) {
-            board.fixtures = feeds.keptFixtures(club)
-            board.results = feeds.keptResults(club)
-            board.table = feeds.keptTable(club)
+    LaunchedEffect(picks.clubIds, picks.leagues) {
+        val clubs = picks.clubIds
+        val leagues = (picks.leagues + clubs.mapNotNull { Clubs.find(it)?.league }).distinct()
+        if (clubs.isEmpty() && leagues.isEmpty()) {
+            board.fixtures = emptyList()
+            board.results = emptyList()
+            board.table = null
+            board.tables = emptyMap()
+            return@LaunchedEffect
         }
-        // TheSportsDB's free key refuses quick runs of requests (HTTP 429): a few seconds apart, and again in two
-        // minutes when one was refused
+        withContext(Dispatchers.IO) {
+            board.fixtures = clubs.flatMap { feeds.keptFixtures(it) }.sortedBy { it.kickoff }
+            board.results = clubs.flatMap { feeds.keptResults(it) }.sortedByDescending { it.kickoff }
+            val keptTables = mutableMapOf<String, app.tilfazi.tv.feed.Table>()
+            for (l in leagues) {
+                feeds.keptTableForLeague(l)?.let {
+                    keptTables[l] = it
+                    clubs.forEach { cid ->
+                        if (Clubs.find(cid)?.league == l) keptTables[cid] = it
+                    }
+                }
+            }
+            board.tables = keptTables
+            board.table = leagues.firstNotNullOfOrNull { keptTables[it] } ?: keptTables.values.firstOrNull()
+        }
         while (true) {
-            var ok = feeds.fetchFixtures(club)?.also { board.fixtures = it } != null
-            delay(4_000)
-            ok = (feeds.fetchResults(club)?.also { board.results = it } != null) && ok
-            delay(4_000)
-            ok = (feeds.fetchTable(club)?.also { board.table = it } != null) && ok
-            delay(if (ok) HALF_HOUR else 120_000L)
+            var ok = true
+            val allFixtures = mutableListOf<Fixture>()
+            val allResults = mutableListOf<Fixture>()
+            for (club in clubs) {
+                val f = feeds.fetchFixtures(club)
+                if (f != null) allFixtures += f else { allFixtures += feeds.keptFixtures(club); ok = false }
+                delay(1_500)
+                val r = feeds.fetchResults(club)
+                if (r != null) allResults += r else { allResults += feeds.keptResults(club); ok = false }
+                delay(1_500)
+            }
+            board.fixtures = allFixtures.sortedBy { it.kickoff }
+            board.results = allResults.sortedByDescending { it.kickoff }
+
+            val allTables = board.tables.toMutableMap()
+            for (l in leagues) {
+                val t = feeds.fetchTableForLeague(l)
+                if (t != null) {
+                    allTables[l] = t
+                    clubs.forEach { cid ->
+                        if (Clubs.find(cid)?.league == l) allTables[cid] = t
+                    }
+                } else ok = false
+                delay(1_500)
+            }
+            board.tables = allTables
+            board.table = leagues.firstNotNullOfOrNull { allTables[it] } ?: allTables.values.firstOrNull()
+
+            // Refresh every 60 seconds while a followed club's match is live, or every 30 minutes otherwise
+            val now = System.currentTimeMillis()
+            val hasLive = board.fixtures.any { it.isLive || (!it.isDone && it.kickoff <= now && now - it.kickoff < 150 * 60_000L) }
+            delay(if (hasLive) 60_000L else if (ok) HALF_HOUR else 120_000L)
         }
     }
     // the photo, only in the photo mode: a new one every half hour from the chosen source. The owner's own or

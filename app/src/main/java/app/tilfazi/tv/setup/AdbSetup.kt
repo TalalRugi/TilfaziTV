@@ -19,6 +19,7 @@ class AdbSetup : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         i.getStringExtra("place")?.let { key -> if (Places.all.any { it.key == key }) Choices.setPlace(key) }
         i.getStringExtra("club")?.let { id -> Choices.setClub(if (id == "none") null else id) }
+        i.getStringExtra("worldClub")?.let { id -> Choices.setWorldClub(if (id == "none") null else id) }
         i.getStringExtra("favourites")?.let {
             if (it == "auto") Choices.resetFavourites()   // as on a fresh install
             else Choices.setFavourites(it.split(',').map(String::trim).filter(String::isNotEmpty))
@@ -26,8 +27,15 @@ class AdbSetup : BroadcastReceiver() {
         i.getStringExtra("unsplash")?.let { Choices.setUnsplash(it) }
         i.getStringExtra("topic")?.let { Choices.setTopic(it) }
         i.getStringExtra("digits")?.let { Choices.setLatinDigits(it == "latin") }
-        for (part in listOf("clock", "prayer", "game", "sky", "backdrop", "tint", "blur", "photos", "addon1", "addon2", "addon3", "cards", "glow", "scene", "dim", "font", "layout", "motion", "density", "still", "artAuto", "size", "edge")) {
+        for (part in listOf("clock", "prayer", "game", "sky", "backdrop", "tint", "blur", "photos", "addon1", "addon2", "addon3", "addon4", "cards", "glow", "scene", "dim", "font", "layout", "motion", "density", "still", "artAuto", "autoScroll", "size", "edge", "overlayMode", "overlayPrayer", "overlayPre", "overlayPost", "overlayHome", "overlayPos", "overlayAlpha")) {
             i.getStringExtra(part)?.toIntOrNull()?.let { Choices.setLook(part, it) }
+        }
+        i.getStringExtra("prayerMethod")?.toIntOrNull()?.let { Choices.setPrayerMethod(it) }
+        i.getStringExtra("prayerMadhhab")?.toIntOrNull()?.let { Choices.setPrayerMadhhab(it) }
+        i.getStringExtra("leagues")?.let { Choices.setLeagues(it.split(',').map(String::trim).filter(String::isNotEmpty)) }
+        i.getStringExtra("gameClubs")?.let { Choices.setGameClubs(it.split(',').map(String::trim).filter(String::isNotEmpty)) }
+        i.getStringExtra("overlayDemo")?.let { kind ->
+            app.tilfazi.tv.overlay.MatchOverlay.triggerDemo(if (kind == "1") "both" else kind)
         }
         i.getStringExtra("onboard")?.let { Choices.setOnboarded(it != "again") }   // «again» shows the first-run screens once more
         i.getStringExtra("name")?.let { pair ->
@@ -36,6 +44,7 @@ class AdbSetup : BroadcastReceiver() {
         }
         val p = Choices.picks.value
         val report = "place=${p.place.key} club=${p.clubId ?: "none"}(${Clubs.find(p.clubId)?.name ?: ""}) " +
+            "worldClub=${p.worldClubId ?: "none"}(${Clubs.find(p.worldClubId)?.name ?: ""}) " +
             "digits=${if (p.latinDigits) "latin" else "hindi"} unsplash=${if (p.unsplashKey.isBlank()) "off" else "on"} " +
             "topic=${p.photoTopic} favourites=${p.favourites?.joinToString(",") ?: "auto"} looks=${p.looks}"
         Log.i("Tilfazi", report)

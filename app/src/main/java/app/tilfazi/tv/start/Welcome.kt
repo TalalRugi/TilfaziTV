@@ -94,7 +94,7 @@ import kotlin.random.Random
 fun Welcome(onDone: () -> Unit) {
     val picks by Choices.picks.collectAsState()
     var step by remember { mutableIntStateOf(0) }
-    val last = 5
+    val last = 6
     BackHandler(enabled = step in 1 until last) { step-- }
     fun next() { if (step < last) step++ }
     val tint by animateColorAsState(Tints.of(picks.looks.tint).color, tween(900), label = "tint")
@@ -102,7 +102,7 @@ fun Welcome(onDone: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Look.NightLow)) {
         // as on the TV's own setup: a plain dark screen, a faint colour from the top corner and nothing else
         // on the colour and glow steps it is the preview itself, at full strength
-        Glass(tint, 170.dp, strength = if (step == 3 || step == 4) 1f else .35f, place = if (step == 4) picks.looks.glow else 0)
+        Glass(tint, 170.dp, strength = if (step == 4 || step == 5) 1f else .35f, place = if (step == 5) picks.looks.glow else 0)
         AnimatedContent(
             targetState = step,
             transitionSpec = {
@@ -119,15 +119,18 @@ fun Welcome(onDone: () -> Unit) {
                         Choices.setPlace(Places.all[it].key); next()
                     }
                 }
-                2 -> Step("من تشجّع؟", "نعرض لك موعد مباراته القادمة", 2) {
-                    val names = Clubs.followable.map { it.name } + "لا أتابع"
-                    val now = Clubs.followable.indexOfFirst { it.id == picks.clubId }.let { if (it < 0) names.lastIndex else it }
-                    Pick(names, now, perRow = 5) { i -> Choices.setClub(Clubs.followable.getOrNull(i)?.id); next() }
+                2 -> Step("فريقك المحلي؟", "نعرض لك موعد مباراته القادمة والنتيجة الحية", 2) {
+                    val names = Clubs.localClubs.map { it.name } + "لا أتابع"
+                    val now = Clubs.localClubs.indexOfFirst { it.id == picks.clubId }.let { if (it < 0) names.lastIndex else it }
+                    Pick(names, now, perRow = 5) { i -> Choices.setClub(Clubs.localClubs.getOrNull(i)?.id); next() }
                 }
-                3 -> Step("اختر لونك", "توهّج زجاجي خلف الواجهة: تنقّل بين الألوان وشاهده يتغيّر خلفك", 3) {
+                3 -> Step("وفريقك العالمي؟", "اختر الدوري ثم ناديك المفضل في أوروبا، أو تخطَّ", 3) {
+                    WorldPick(picks.worldClubId) { id -> Choices.setWorldClub(id); next() }
+                }
+                4 -> Step("اختر لونك", "توهّج زجاجي خلف الواجهة: تنقّل بين الألوان وشاهده يتغيّر خلفك", 4) {
                     LivePick(Tints.all.map { it.name }, picks.looks.tint, { Choices.setLook("tint", it) }) { next() }
                 }
-                4 -> Step("من أين يتوهّج؟", "اختر موضع اللون على الشاشة، وشاهده يتحرك أمامك", 4) {
+                5 -> Step("من أين يتوهّج؟", "اختر موضع اللون على الشاشة، وشاهده يتحرك أمامك", 5) {
                     LivePick(app.tilfazi.tv.look.GLOW_PLACES, picks.looks.glow, { Choices.setLook("glow", it) }) { next() }
                 }
                 else -> Ready(onDone)
@@ -180,13 +183,38 @@ private fun Hello(onStart: () -> Unit) {
 private fun Step(title: String, line: String, number: Int = 0, content: @Composable () -> Unit) {
     Row(Modifier.fillMaxSize().padding(start = 96.dp, end = 72.dp, top = 80.dp, bottom = 80.dp)) {
         Column(Modifier.weight(1f).padding(end = 48.dp, top = 40.dp)) {
-            if (number > 0) Text(Look.digits("$number من 4", false), style = Look.style(16.sp, Look.Faint, FontWeight.Medium),
+            if (number > 0) Text(Look.digits("$number من 5", false), style = Look.style(16.sp, Look.Faint, FontWeight.Medium),
                 modifier = Modifier.padding(bottom = 16.dp))
             Text(title, style = Look.style(46.sp, Look.Ink, big = true))
             Spacer(Modifier.height(14.dp))
             Text(line, style = Look.style(20.sp, Look.Soft), modifier = Modifier.width(400.dp))
         }
         Box(Modifier.width(380.dp).fillMaxHeight()) { content() }
+    }
+}
+
+@Composable
+private fun WorldPick(currentId: String?, onPick: (String?) -> Unit) {
+    val leagues = Clubs.worldLeagues
+    val currentClub = Clubs.find(currentId)
+    var leagueIdx by remember(currentId) {
+        mutableIntStateOf(leagues.indexOfFirst { it.slug == currentClub?.league }.coerceAtLeast(0))
+    }
+    val clubs = leagues[leagueIdx.coerceIn(0, leagues.lastIndex)].clubs
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(350); runCatching { focus.requestFocus() } }
+    Column(Modifier.fillMaxHeight()) {
+        Chips(leagues.map { it.shortName }, leagueIdx, perRow = 4) { leagueIdx = it }
+        Spacer(Modifier.height(14.dp))
+        androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+            item {
+                Row2("لا أتابع", { onPick(null) }, if (currentId == null) Modifier.focusRequester(focus) else Modifier, on = currentId == null)
+            }
+            items(clubs.size) { i ->
+                val c = clubs[i]
+                Row2(c.name, { onPick(c.id) }, if (c.id == currentId) Modifier.focusRequester(focus) else Modifier, on = c.id == currentId)
+            }
+        }
     }
 }
 

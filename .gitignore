@@ -7,3 +7,6 @@ local.properties
 *.keystore
 .idea/
 .kotlin/
+
+# خط ثمانية: يُوضع محلياً ولا يُنشر مع الكود (انظر SPEC.md)
+app/src/main/assets/fonts/thmanyah*

@@ -24,11 +24,45 @@ data class Sky(
     val days: List<Day> = emptyList(),
 )
 
-/** The followed club's next game, or (with the scores) a game played. */
+/** The followed club's next game, a live game in progress, or (with the scores) a game played. */
 data class Fixture(
     val home: String, val away: String, val homeBadge: String?, val awayBadge: String?,
     val competition: String, val kickoff: Long,
     val homeScore: Int? = null, val awayScore: Int? = null,
+    /** "pre" before kick-off, "in" while live, "post" when finished */
+    val state: String = "pre",
+    /** live match clock/status in Arabic, e.g. "71'" or "بين الشوطين" */
+    val clock: String = "",
+    val clubId: String = "",
+    val eventId: String = "",
+    val statusName: String = "",
+) {
+    val isLive: Boolean get() = state == "in"
+    val isDone: Boolean get() = state == "post"
+    val statusArabic: String
+        get() = when {
+            clock.isNotBlank() -> clock
+            statusName == "STATUS_HALFTIME" -> "بين الشوطين"
+            statusName == "STATUS_FIRST_HALF" -> "الشوط الأول"
+            statusName == "STATUS_SECOND_HALF" -> "الشوط الثاني"
+            statusName.contains("OVERTIME") -> "شوط إضافي"
+            statusName.contains("SHOOTOUT") -> "ركلات الترجيح"
+            statusName == "STATUS_FINAL" || statusName == "STATUS_FULL_TIME" -> "نهاية المباراة"
+            statusName == "STATUS_POSTPONED" -> "مؤجلة"
+            statusName == "STATUS_CANCELED" -> "ملغاة"
+            isLive -> "مباراة جارية"
+            isDone -> "انتهت"
+            else -> "قادمة"
+        }
+}
+
+/** A notable event in a live match (goal, red card, or phase transition). */
+data class MatchEvent(
+    val key: String,
+    /** "goal", "red", or "phase" */
+    val kind: String,
+    val title: String,
+    val detail: String,
 )
 
 /** One line of a league table. */
@@ -117,26 +151,39 @@ class Feeds(private val c: Context) {
         if (id.isBlank()) null else "https://a.espncdn.com/i/teamlogos/soccer/500/$id.png#" + URLEncoder.encode(name, "UTF-8")
 
     fun keptFixtures(clubId: String): List<Fixture> =
-        kept("games-$clubId.json")?.let { runCatching { parseGames(JSONArray(it)) }.getOrNull() } ?: emptyList()
+        kept("games-$clubId.json")?.let { runCatching { parseGames(JSONArray(it), clubId) }.getOrNull() } ?: emptyList()
 
-    /** the club's coming games in every competition: the league, the cups, Asia */
+    /** the club's coming games in every competition: the league, the cups, Asia, Europe */
     suspend fun fetchFixtures(clubId: String): List<Fixture>? = runCatching {
         val events = Net.json("$espn/all/teams/$clubId/schedule?fixture=true").optJSONArray("events") ?: JSONArray()
         keep("games-$clubId.json", events.toString())
-        parseGames(events)
+        parseGames(events, clubId)
     }.onFailure { android.util.Log.w("Tilfazi", "games: $it") }.getOrNull()
 
     /** the club's games already played, newest first */
     fun keptResults(clubId: String): List<Fixture> =
-        kept("played-$clubId.json")?.let { runCatching { parseGames(JSONArray(it)).filter { g -> g.homeScore != null }.reversed() }.getOrNull() } ?: emptyList()
+        kept("played-$clubId.json")?.let { runCatching { parseGames(JSONArray(it), clubId).filter { g -> g.isDone && g.homeScore != null }.reversed() }.getOrNull() } ?: emptyList()
 
     suspend fun fetchResults(clubId: String): List<Fixture>? = runCatching {
         val events = Net.json("$espn/all/teams/$clubId/schedule").optJSONArray("events") ?: JSONArray()
         keep("played-$clubId.json", events.toString())
-        parseGames(events).filter { it.homeScore != null }.reversed()
+        parseGames(events, clubId).filter { it.isDone && it.homeScore != null }.reversed()
     }.onFailure { android.util.Log.w("Tilfazi", "results: $it") }.getOrNull()
 
-    private fun parseGames(a: JSONArray): List<Fixture> {
+    private fun liveClock(status: JSONObject?, type: JSONObject?): String {
+        val name = type?.optString("name") ?: ""
+        val detail = status?.optString("displayClock")?.trim() ?: ""
+        return when (name) {
+            "STATUS_HALFTIME" -> "بين الشوطين"
+            "STATUS_END_OF_REGULATION", "STATUS_END_PERIOD" -> "نهاية الشوط"
+            "STATUS_SHOOTOUT" -> "ركلات الترجيح"
+            "STATUS_FIRST_HALF_OVERTIME", "STATUS_SECOND_HALF_OVERTIME", "STATUS_OVERTIME" ->
+                if (detail.isNotEmpty() && detail != "0'") "إضافي $detail" else "شوط إضافي"
+            else -> if (detail.isNotEmpty() && detail != "0'") detail else "مباشر"
+        }
+    }
+
+    private fun parseGames(a: JSONArray, clubId: String = ""): List<Fixture> {
         val utc = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         return (0 until a.length()).mapNotNull { i ->
             val e = a.getJSONObject(i)
@@ -146,8 +193,17 @@ class Feeds(private val c: Context) {
             fun side(where: String) = (0 until sides.length()).map { sides.getJSONObject(it) }.firstOrNull { it.optString("homeAway") == where }
             val home = side("home") ?: return@mapNotNull null
             val away = side("away") ?: return@mapNotNull null
-            val done = c.optJSONObject("status")?.optJSONObject("type")?.optBoolean("completed") == true
-            fun score(x: JSONObject): Int? = if (!done) null else
+            val status = c.optJSONObject("status")
+            val type = status?.optJSONObject("type")
+            val done = type?.optBoolean("completed") == true
+            val rawState = type?.optString("state") ?: ""
+            val state = when {
+                done || rawState == "post" -> "post"
+                rawState == "in" -> "in"
+                else -> "pre"
+            }
+            val clock = if (state == "in") liveClock(status, type) else ""
+            fun score(x: JSONObject): Int? = if (state == "pre") null else
                 (x.optJSONObject("score")?.optString("displayValue") ?: x.optString("score")).toIntOrNull()
             fun team(x: JSONObject) = x.getJSONObject("team")
             Fixture(
@@ -159,24 +215,87 @@ class Feeds(private val c: Context) {
                 kickoff = kick,
                 homeScore = score(home),
                 awayScore = score(away),
+                state = state,
+                clock = clock,
+                clubId = clubId,
+                eventId = e.optString("id"),
+                statusName = type?.optString("name") ?: "",
             )
         }.sortedBy { it.kickoff }
     }
 
-    fun keptTable(clubId: String): Table? = kept("table.json")?.let { runCatching { parseTable(JSONObject(it)) }.getOrNull() }
+    /** goals and red cards of a live match, from ESPN's free match summary */
+    suspend fun fetchMatchEvents(eventId: String): List<MatchEvent> = runCatching {
+        if (eventId.isBlank()) return emptyList()
+        val comp = Net.json("$espn/all/summary?event=$eventId")
+            .optJSONObject("header")
+            ?.optJSONArray("competitions")
+            ?.optJSONObject(0) ?: return emptyList()
+        val details = comp.optJSONArray("details") ?: return emptyList()
+        (0 until details.length()).mapNotNull { i ->
+            val d = details.getJSONObject(i)
+            val isGoal = d.optBoolean("scoringPlay")
+            val isRed = d.optBoolean("redCard")
+            if (!isGoal && !isRed) return@mapNotNull null
+            val clock = d.optJSONObject("clock")?.optString("displayValue")?.trim() ?: ""
+            val teamObj = d.optJSONObject("team")
+            val teamName = if (teamObj != null) Clubs.arabic(teamObj.optString("id"), teamObj.optString("displayName")) else ""
+            val player = d.optJSONArray("participants")
+                ?.optJSONObject(0)
+                ?.optJSONObject("athlete")
+                ?.optString("displayName")
+                ?.trim() ?: ""
+            val tag = when {
+                d.optBoolean("ownGoal") -> " (هدف عكسي)"
+                d.optBoolean("penaltyKick") -> " (ركلة جزاء)"
+                else -> ""
+            }
+            if (isGoal) {
+                MatchEvent(
+                    key = "goal-$clock-$player-$teamName",
+                    kind = "goal",
+                    title = if (teamName.isNotEmpty()) "هدف · $teamName" else "هدف!",
+                    detail = listOf(player, "$clock$tag").filter { it.isNotBlank() }.joinToString(" · "),
+                )
+            } else {
+                MatchEvent(
+                    key = "red-$clock-$player-$teamName",
+                    kind = "red",
+                    title = if (teamName.isNotEmpty()) "بطاقة حمراء · $teamName" else "بطاقة حمراء",
+                    detail = listOf(player, clock).filter { it.isNotBlank() }.joinToString(" · "),
+                )
+            }
+        }
+    }.getOrElse { emptyList() }
 
-    /** the Saudi Pro League's whole table */
+    fun keptTableForLeague(league: String): Table? {
+        return kept("table-$league.json")?.let { runCatching { parseTable(JSONObject(it), league) }.getOrNull() }
+            ?: kept("table.json")?.takeIf { league == "ksa.1" }?.let { runCatching { parseTable(JSONObject(it), league) }.getOrNull() }
+    }
+
+    fun keptTable(clubId: String): Table? {
+        val league = Clubs.find(clubId)?.league ?: "ksa.1"
+        return keptTableForLeague(league)
+    }
+
+    /** domestic league table by ESPN league slug */
+    suspend fun fetchTableForLeague(league: String): Table? = runCatching {
+        val body = Net.json("https://site.api.espn.com/apis/v2/sports/soccer/$league/standings")
+        keep("table-$league.json", body.toString())
+        parseTable(body, league)
+    }.onFailure { android.util.Log.w("Tilfazi", "table ($league): $it") }.getOrNull()
+
+    /** the followed club's domestic league table */
     suspend fun fetchTable(clubId: String): Table? = runCatching {
-        val body = Net.json("https://site.api.espn.com/apis/v2/sports/soccer/ksa.1/standings")
-        keep("table.json", body.toString())
-        parseTable(body)
+        val league = Clubs.find(clubId)?.league ?: "ksa.1"
+        fetchTableForLeague(league)
     }.onFailure { android.util.Log.w("Tilfazi", "table: $it") }.getOrNull()
 
-    private fun parseTable(o: JSONObject): Table {
+    private fun parseTable(o: JSONObject, leagueSlug: String = "ksa.1"): Table {
         val group = o.getJSONArray("children").getJSONObject(0)
         val entries = group.getJSONObject("standings").getJSONArray("entries")
         return Table(
-            league = Clubs.competition(group.optString("name")),
+            league = Clubs.leagueName(leagueSlug),
             rows = (0 until entries.length()).map { i ->
                 val e = entries.getJSONObject(i)
                 val t = e.getJSONObject("team")
@@ -187,7 +306,7 @@ class Feeds(private val c: Context) {
                     rank = stat("rank").takeIf { it > 0 } ?: (i + 1),
                     id = t.optString("id"),
                     name = Clubs.arabic(t.optString("id"), t.optString("displayName")),
-                    badge = crestOf(t.optString("id")),
+                    badge = crestOf(t.optString("id"), t.optString("displayName")),
                     played = stat("gamesPlayed"),
                     points = stat("points"),
                 )
@@ -195,24 +314,60 @@ class Feeds(private val c: Context) {
         )
     }
 
-    /** a club's crest, downloaded once (TheSportsDB's small copy) */
-    suspend fun badge(url: String): Bitmap? = runCatching {
-        val f = File(dir, "badge-" + Integer.toHexString(url.hashCode()) + ".png")
-        if (!f.isFile) {
-            // ESPN's 500 px crest asked for at 128 px through its resizer; ESPN has none for some clubs (Al-Shamal):
-            // then TheSportsDB's, found by the club's name carried after the «#»
-            val bare = url.substringBefore('#')
-            val name = java.net.URLDecoder.decode(url.substringAfter('#', ""), "UTF-8")
-            val bytes = runCatching { Net.bytes("https://a.espncdn.com/combiner/i?img=" + bare.removePrefix("https://a.espncdn.com") + "&w=128&h=128") }
-                .recoverCatching {
-                    // its search finds «Al Shamal» but not «Al-Shamal»
-                    val teams = Net.json("https://www.thesportsdb.com/api/v1/json/123/searchteams.php?t=" + URLEncoder.encode(name.replace('-', ' '), "UTF-8")).getJSONArray("teams")
-                    Net.bytes(teams.getJSONObject(0).getString("strBadge") + "/small")
-                }.getOrThrow()
-            f.writeBytes(bytes)
+    /** a club's crest, downloaded once and kept in memory and on disk */
+    suspend fun badge(url: String): Bitmap? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        badgeCache.get(url)?.let { return@withContext it }
+        runCatching {
+            val f = File(dir, "badge-" + Integer.toHexString(url.hashCode()) + ".png")
+            if (!f.isFile) {
+                // ESPN's 500 px crest asked for at 128 px through its resizer; ESPN has none for some clubs (Al-Shamal):
+                // then TheSportsDB's, found by the club's name carried after the «#»
+                val bare = url.substringBefore('#')
+                val name = java.net.URLDecoder.decode(url.substringAfter('#', ""), "UTF-8")
+                val bytes = runCatching { Net.bytes("https://a.espncdn.com/combiner/i?img=" + bare.removePrefix("https://a.espncdn.com") + "&w=128&h=128") }
+                    .recoverCatching {
+                        val teams = Net.json("https://www.thesportsdb.com/api/v1/json/123/searchteams.php?t=" + URLEncoder.encode(name.replace('-', ' '), "UTF-8")).getJSONArray("teams")
+                        Net.bytes(teams.getJSONObject(0).getString("strBadge") + "/small")
+                    }.getOrThrow()
+                f.writeBytes(bytes)
+            }
+            BitmapFactory.decodeFile(f.path)?.let(::trimCrest)?.also { badgeCache.put(url, it) }
+        }.getOrNull()
+    }
+
+    /** Crops transparent margins around a club crest and centers it in a square canvas so every logo renders at uniform visual size. */
+    private fun trimCrest(src: Bitmap): Bitmap {
+        val w = src.width
+        val h = src.height
+        if (w <= 4 || h <= 4) return src
+        val px = IntArray(w * h)
+        src.getPixels(px, 0, w, 0, 0, w, h)
+        var minX = w
+        var maxX = -1
+        var minY = h
+        var maxY = -1
+        for (y in 0 until h) {
+            val row = y * w
+            for (x in 0 until w) {
+                val a = (px[row + x] ushr 24) and 0xFF
+                if (a > 36) {
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                    if (y < minY) minY = y
+                    if (y > maxY) maxY = y
+                }
+            }
         }
-        BitmapFactory.decodeFile(f.path)
-    }.getOrNull()
+        if (maxX < minX || maxY < minY) return src
+        val cw = maxX - minX + 1
+        val ch = maxY - minY + 1
+        val side = maxOf(cw, ch)
+        if (side >= (maxOf(w, h) * 95) / 100 && w == h) return src
+        val out = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        val cropped = Bitmap.createBitmap(src, minX, minY, cw, ch)
+        android.graphics.Canvas(out).drawBitmap(cropped, (side - cw) / 2f, (side - ch) / 2f, null)
+        return out
+    }
 
     // ---------------------------------------------------------------- photos (Unsplash, with the owner's key)
 
@@ -244,5 +399,6 @@ class Feeds(private val c: Context) {
     }
 
     companion object {
+        private val badgeCache = android.util.LruCache<String, Bitmap>(64)
     }
 }

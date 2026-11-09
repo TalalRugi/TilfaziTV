@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.tilfazi.tv.feed.Choices
 import app.tilfazi.tv.feed.Looks
+import app.tilfazi.tv.feed.Picks
 import app.tilfazi.tv.feed.Place
 import app.tilfazi.tv.feed.Salah
 
@@ -68,10 +69,17 @@ object Blurs {
  * - photo: an Unsplash photo, blurred as chosen, under a dark wash (the glass when there is no photo yet).
  */
 @Composable
-fun Scenery(board: Board, looks: Looks, place: Place, dimmer: Float = 0f, content: @Composable BoxScope.() -> Unit) {
+fun Scenery(
+    board: Board,
+    looks: Looks,
+    place: Place,
+    dimmer: Float = 0f,
+    picks: Picks? = null,
+    content: @Composable BoxScope.() -> Unit,
+) {
     // from Maghrib to Fajr the glow is turned down further, so a dark room is not lit by it
-    val night = remember(board.now / 60_000L, place) {
-        val day = Salah.day(board.now, place)
+    val night = remember(board.now / 60_000L, place, picks?.prayerMethod, picks?.prayerMadhhab, picks?.prayerAdjust) {
+        val day = if (picks != null) Salah.day(board.now, picks) else Salah.day(board.now, place)
         board.now < day.first().at || board.now >= day[3].at
     }
     val strength by animateFloatAsState(if (night) .55f else 1f, tween(3000), label = "night")

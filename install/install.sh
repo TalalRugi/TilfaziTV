@@ -69,6 +69,7 @@ if ! sh pm list packages $pkg | grep -q "$pkg"; then
   sh pm list packages $pkg | grep -q "$pkg" || { echo "!! The TV removed tilfazi after installing it."; exit 1; }
 fi
 echo "Installed."
+sh appops set $pkg SYSTEM_ALERT_WINDOW allow > /dev/null 2>&1 || true
 
 say "The TV's own home"
 # the homes that came with the TV (system apps); a launcher the person installed is theirs and left alone

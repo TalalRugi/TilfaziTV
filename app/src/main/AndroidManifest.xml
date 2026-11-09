@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- floating live match pill over other apps (YouTube, TV inputs, etc.) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- to offer «uninstall» on an app: Android itself asks the owner to confirm -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <!-- updates from tilfazi's releases: Android's installer still asks the owner -->
